@@ -1,0 +1,92 @@
+name: Device Test Report
+description: Report your unlock result to add your device to the compatibility database
+title: "[DEVICE] "
+labels: ["device-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! Fill in all fields — this data goes directly into COMPATIBILITY.md.
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      description: "Full model name (e.g. Redmi Note 11S)"
+      placeholder: "Redmi Note 11S"
+    validations:
+      required: true
+  - type: input
+    id: codename
+    attributes:
+      label: Codename
+      description: "Device codename (e.g. miel, fleur, camellia)"
+      placeholder: "miel"
+    validations:
+      required: true
+  - type: input
+    id: soc
+    attributes:
+      label: SoC
+      description: "MediaTek SoC (e.g. MT6781, MT6833)"
+      placeholder: "MT6781"
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+      description: "Full firmware string (e.g. HyperOS OS1.0.9.0.TKEEUXM)"
+      placeholder: "HyperOS OS1.0.9.0.TKEEUXM"
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Unlock result
+      options:
+        - SUCCESS — unlocked
+        - FAILED — still locked after procedure
+        - PARTIAL — unlocked but issue (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: fastboot_output
+    attributes:
+      label: fastboot oem lks output
+      description: "Paste the output of `fastboot oem lks` and `fastboot getvar unlocked` after the procedure"
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: commands_used
+    attributes:
+      label: Commands used
+      description: "The exact mtkclient commands you ran (with preloader if used)"
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: rpmb_sector
+    attributes:
+      label: RPMB sector used
+      description: "Which sector did you erase? (default: 57344)"
+      placeholder: "57344"
+    validations:
+      required: true
+  - type: dropdown
+    id: persistent
+    attributes:
+      label: Persistent after reboot?
+      options:
+        - "Yes — still unlocked after reboot"
+        - "No — relocked after reboot"
+        - "Not tested yet"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes
+      description: "Any issues, errors, or observations"
+    validations:
+      required: false
