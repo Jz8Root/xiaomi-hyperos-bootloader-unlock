@@ -42,67 +42,129 @@ Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Prot
 | 3 | UNLOCKED |
 | 4 | LOCKED |
 
-## The Method — 3 Commands
+## The Method
+
+The procedure depends on whether your specific LK binary implements the RPMB magic check.
+**Don't assume — scan your LK first.** Two devices with the same codename and same SoC can
+ship different LK builds with different lock implementations.
 
 ### Prerequisites
 
 - [mtkclient](https://github.com/bkerler/mtkclient) with Kamakiri BROM exploit
 - Access to BROM mode (usually Vol+/Vol- while plugging USB — varies by device)
 - Quality USB DATA cable (not charge-only)
-- **MANDATORY:** Full backup of NV partitions (nvdata, nvcfg, nvram, persist, protect1, protect2)
+- **MANDATORY:** Full backup of NV partitions (commands below)
 
-### For HyperOS / MIUI 14+ Devices
+### Step 0 — Mandatory backups
+
+In BROM, dump everything that matters before any write operation:
 
 ```bash
-cd mtkclient
+# Critical partitions in one BROM session (sizes are mtkclient's uniform read, real content at the start)
+python mtk.py r \
+  nvdata,nvcfg,nvram,persist,protect1,protect2,seccfg,lk_a,lk_b,boot_a,boot_b \
+  nvdata.bin,nvcfg.bin,nvram.bin,persist.bin,protect1.bin,protect2.bin,seccfg.bin,lk_a.bin,lk_b.bin,boot_a.bin,boot_b.bin
 
-# STEP 1: BACKUP RPMB — DO NOT SKIP THIS
+# RPMB (separate BROM session — phone must re-enter BROM between sessions)
 python mtk.py da rpmb r rpmb_backup.bin
+```
 
-# STEP 2: Erase RPMB lock region
+Without `nvdata` / `nvcfg` / `nvram` / `protect*` you risk "NV data corrupted" → bricked
+IMEI and baseband. Keep these backups for months — they're your recovery path.
+
+### Step 1 — Identify your LK with `scan_lk.py` ⟵ DECISION POINT
+
+Run the scanner on the LK binary you just dumped:
+
+```bash
+python3 scan_lk.py lk_a.bin
+```
+
+The verdict drives which path you take:
+
+| Verdict | Meaning | Path |
+|-|-|-|
+| `COMPATIBLE_FULL` | Magic `Jz8PNRUF` present in LK → `mi_check_magic()` is active | **Path A** below |
+| `COMPATIBLE_SECCFG_ONLY` | Magic absent → LK falls back to seccfg unconditionally | **Path B** below |
+| Other / `NOT_COMPATIBLE` | Investigate manually — share your `scan_lk.py --json` output in an issue | — |
+
+> Older fleur units (and other "HyperOS-eligible" devices) ship the MIUI-13-era LK
+> that Xiaomi never updated. On those, the RPMB lock layer simply isn't implemented
+> and the destructive RPMB erase step is unnecessary. The scanner is the only
+> reliable way to tell from outside.
+
+### Path A — `COMPATIBLE_FULL` (RPMB magic present)
+
+Three commands, one BROM cycle each:
+
+```bash
+# STEP A1: Erase RPMB magic region
 python mtk.py da rpmb e --sector 57344 --sectors 4
 
-# STEP 3: Unlock seccfg
+# STEP A2: Unlock seccfg
 python mtk.py da seccfg unlock
 ```
 
-**Between each command: unplug the phone, replug in BROM mode (Vol+/Vol-).**
+(Step 0 already produced the mandatory `rpmb_backup.bin`.) **Between every `da` command,
+the phone needs a fresh BROM entry** — unplug, redo the key combo, replug.
 
-If your device needs a specific preloader:
-```bash
-python mtk.py --preloader preloader_CODENAME.bin da rpmb r rpmb_backup.bin
-python mtk.py --preloader preloader_CODENAME.bin da rpmb e --sector 57344 --sectors 4
-python mtk.py --preloader preloader_CODENAME.bin da seccfg unlock
-```
+If your device needs a specific preloader, add `--preloader preloader_CODENAME.bin` to each command.
 
-**Note on Step 2:** We erase only 4 sectors starting at 57344 — this targets only the magic region. The lock state length (sector 57600) and signature data (sector 57856) remain untouched. Erasing only the magic is sufficient: absent magic forces the DEFAULT->seccfg fallback path.
+**Note on the erase:** only 4 sectors at 57344 are touched — just the magic region. Lock-state length
+(sector 57600) and signature data (sector 57856) are left untouched. Absent magic alone forces
+the DEFAULT→seccfg fallback path.
 
-### Verification
+**Non-Samsung UFS:** sector 57344 is the *Samsung* layout. Hynix and other UFS vendors may have
+the magic at different offsets — see [RPMB Sector Reference](#rpmb-sector-reference) below. If
+your dump's sector 57344 is empty AND `scan_lk.py` returned `COMPATIBLE_SECCFG_ONLY`, you don't
+need to find the magic — skip to Path B.
 
-```bash
-fastboot oem lks          # Expected: lks = 0
-fastboot getvar unlocked  # Expected: unlocked: yes
-```
+### Path B — `COMPATIBLE_SECCFG_ONLY` (no RPMB magic — older LK)
 
-Open padlock logo on boot = success.
-
-### For MIUI 11/12/13 (older firmware — no RPMB lock)
+One command:
 
 ```bash
 python mtk.py da seccfg unlock
 ```
 
-One command. The RPMB mechanism doesn't exist on older firmware.
+That's the entire write. No RPMB writes happen anywhere — the LK doesn't read the magic.
+Look for these lines in the mtkclient output to confirm success:
 
-### Which Method Do I Need?
+```
+XFlashExt - Detected V4 Lockstate
+SecCfgV4 - hwtype found: V4
+Sej - AES128 CBC - HACC init/run/terminate
+DaHandler - Successfully wrote seccfg.
+```
 
-| Firmware | RPMB lock present | Method |
-|----------|-------------------|--------|
-| HyperOS 1 (2024, OS1.0.x) | YES — tested | RPMB erase + seccfg unlock |
-| HyperOS 2/3 (2025-2026) | UNKNOWN — not tested | Use with caution, report results |
-| MIUI 14 (2023) | Varies | Check your LK binary with scan_lk.py |
-| MIUI 13 (2022) | NO | seccfg only |
-| MIUI 11/12 (2021) | NO | seccfg only |
+### Step 2 — Verify in fastboot
+
+After mtkclient finishes, fully power-off the phone, then hold Vol- + plug USB to enter
+fastboot. Run:
+
+```bash
+fastboot oem lks                 # Expected: (bootloader) lks = 0
+fastboot getvar unlocked         # Expected: unlocked: yes
+fastboot getvar secure           # Expected: secure: no
+```
+
+If `lks = 0`, the unlock is in seccfg and persistent.
+
+### Step 3 — Clear the dm-verity state (REQUIRED on first boot after unlock)
+
+If you boot to Android directly after unlock, you'll see Android's **"Your device is corrupt"**
+dm-verity screen — that's actually proof the unlock took effect (a locked LK would have refused to hand
+off to Android at all). The pre-existing userdata was written under the old trust state; wipe it before
+the first Android boot:
+
+```bash
+fastboot erase userdata
+fastboot erase metadata
+fastboot reboot
+```
+
+Phone will boot into a fresh HyperOS setup wizard. Subsequent boots show the orange "unlocked"
+warning for ~10 s — that's normal for an unlocked Xiaomi device.
 
 ## RPMB Sector Reference
 
@@ -131,28 +193,33 @@ device doesn't match sector 57344, dump your RPMB first (`da rpmb r rpmb_dump.bi
 search for the magic string: `grep -boa "Jz8PNRUF" rpmb_dump.bin` to find the correct offset.
 Convert to sector: `byte_offset / 256 = sector`.
 
-## scan_lk.py — Compatibility Scanner
+## scan_lk.py — How the Scanner Works
 
-Analyzes any Xiaomi MTK LK binary using string searches and byte pattern matching:
-- Whether the RPMB magic string is present in the binary (exact match)
+The scanner that gates the procedure above analyzes any Xiaomi MTK LK binary using string
+searches and byte pattern matching:
+
+- Whether the RPMB magic string `Jz8PNRUF` is present in the binary (exact match)
 - UFS RPMB type detection (heuristic based on constant values)
-- RSA key detection (exact prefix match for known Xiaomi key, entropy heuristic fallback)
-- Function presence detection via string references (NOT ARM instruction analysis — requires unstripped debug strings)
+- RSA key detection (exact prefix match for the known Xiaomi key, entropy heuristic fallback)
+- Function presence detection via string references — note: this is **string-based, not ARM instruction analysis**, so a Xiaomi build that strips or obfuscates debug strings could fool it
 - Compatibility verdict with score (0-100%)
+
+The scanner accepts LK binaries from any source:
 
 ```bash
 # From firmware ZIP
 unzip firmware.zip  # -> images/lk.img or lk_a.img
 
-# From device via mtkclient
-python mtk.py da r lk_a lk_a.bin
+# From device via mtkclient (recommended — matches what's actually running)
+python mtk.py r lk_a lk_a.bin
 
 # Run scanner
-python3 scan_lk.py lk.img
-python3 scan_lk.py lk.img --json  # structured output
+python3 scan_lk.py lk_a.bin
+python3 scan_lk.py lk_a.bin --json  # structured output
 ```
 
-See [COMPATIBILITY.md](COMPATIBILITY.md) for the full device database.
+See [COMPATIBILITY.md](COMPATIBILITY.md) for the full device database — entries are indexed
+by LK build hash because the same codename can ship multiple LK generations.
 
 ## FAQ
 
@@ -174,7 +241,7 @@ A: We only need to remove the magic string. The lock state length and signature 
 2. **BACKUP NV PARTITIONS** (nvdata, nvcfg, nvram, persist, protect1, protect2) — without these, you risk "NV data corrupted" which breaks IMEI and baseband.
 3. **THIS WILL WIPE YOUR DATA.** Factory reset on first boot after unlock.
 4. **BROM V6 = NO GO.** If your SoC is MT6789 or newer, Kamakiri is patched in hardware.
-5. **HyperOS 1 ONLY (tested).** HyperOS 2/3 have NOT been verified.
+5. **HyperOS 1 PROVEN (Path A) + older MIUI/HyperOS LK builds PROVEN (Path B).** HyperOS 2/3 (2025+) have NOT been verified — run `scan_lk.py` first and report results.
 6. Unlocking the bootloader voids manufacturer warranty.
 
 ## Credits

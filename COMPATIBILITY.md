@@ -1,15 +1,21 @@
 # Compatibility Database
 
+> **Indexed by LK build, not codename.** The same codename (e.g. fleur) ships multiple LK
+> generations across different firmware versions and submodels — and they don't all
+> implement the RPMB magic check. Always run `scan_lk.py` on the LK extracted from
+> your specific device before assuming a row below applies to you.
+
 ## Tier 1 — PROVEN ON HARDWARE
 
-| Device | SoC | Exploit | Result | Date |
-|--------|-----|---------|--------|------|
-| POCO M4 Pro 4G (fleur) | MT6781 Helio G96 | Kamakiri2 | UNLOCKED | 2026-03-23 |
+| Device (codename, model) | SoC | UFS vendor | LK build | scan_lk verdict | Path | Result | Date | Tester |
+|-|-|-|-|-|-|-|-|-|
+| POCO M4 Pro 4G (fleur) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.11.0.TKEEUXM (Oct 2024) | `COMPATIBLE_FULL` | A (RPMB erase + seccfg) | UNLOCKED | 2026-03-23 | Jz8root |
+| Redmi Note 11 4G (fleur, 2201117SY) | MT6781 Helio G96 | SK Hynix H9HQ54AECMMDAR | `fleur-d01540d34-20220430143603` md5 `701bbd3ee76e780b030d8568368a7a4e` (HyperOS V816.0.1.0.TKEEUXM, EEA) | `COMPATIBLE_SECCFG_ONLY` (52/100) | B (seccfg only) | UNLOCKED | 2026-05-19 | miromraz |
 
 ## Tier 2 — CONFIRMED COMPATIBLE VIA LK ANALYSIS (unlock pending)
 
 | Device | SoC | Status |
-|--------|-----|--------|
+|-|-|-|
 | Redmi Note 11S (miel) | MT6781 | LK binary analyzed — magic, RSA key, offsets all match. Hardware test scheduled. |
 
 ## Tier 3 — PROBABLE (GitHub issues confirm same symptom)
@@ -43,27 +49,26 @@ Issues #81 and #738 have been open since **2021**.
 
 **All Snapdragon devices** are out of scope (completely different bootloader architecture).
 
-## Firmware Method Reference
+## Firmware → Likely Verdict (rule of thumb)
 
-| Firmware | RPMB lock present | Method |
-|----------|-------------------|--------|
-| HyperOS 1 (2024, OS1.0.x) | YES — tested | RPMB erase + seccfg unlock |
-| HyperOS 2/3 (2025-2026) | UNKNOWN | Not tested — use with caution |
-| MIUI 14 (2023) | Varies | Scan your LK binary with scan_lk.py |
-| MIUI 13 (2022) | NO | seccfg only |
-| MIUI 11/12 (2021) | NO | seccfg only |
+The verdict from `scan_lk.py` on your specific LK is authoritative. Use this table only as a
+prior expectation:
 
-## Tested By
-
-| Tester | Device | Result | Date |
-|--------|--------|--------|------|
-| Jz8root | POCO M4 Pro 4G (fleur, MT6781, HyperOS OS1.0.11.0.TKEEUXM) | UNLOCKED | 2026-03-23 |
+| Firmware era | Likely scan_lk verdict | Notes |
+|-|-|-|
+| HyperOS 1 (2024, OS1.0.x) — fresh-shipped device | `COMPATIBLE_FULL` (Path A) | LK rebuilt for RPMB magic — magic present, erase needed |
+| HyperOS 1 (2024, OS1.0.x) — updated *from* MIUI without LK rewrite | `COMPATIBLE_SECCFG_ONLY` (Path B) | Older LK never updated despite Android version bump (observed on fleur 2201117SY) |
+| HyperOS 2/3 (2025+) | UNKNOWN | Not yet observed — run `scan_lk.py` and report |
+| MIUI 14 (2023) | Varies | Some shipped with the new lock; many didn't |
+| MIUI 13 (2022) and earlier | `COMPATIBLE_SECCFG_ONLY` (Path B) | Pre-dates the RPMB lock layer entirely |
 
 ---
 
 **Want to contribute?** Test the method on your device and open an issue with:
-- Device model + codename
+- Device model + codename + submodel suffix (e.g. `2201117SY`)
 - SoC
 - Firmware version
+- UFS vendor (from mtkclient log: `DAXFlash - UFS ID: ...`)
+- LK build string and md5 (look in the LK binary with `strings lk_a.bin | grep -E '<codename>-'`)
+- `scan_lk.py --json` output
 - `fastboot oem lks` output after the procedure
-- scan_lk.py output (`--json`)
