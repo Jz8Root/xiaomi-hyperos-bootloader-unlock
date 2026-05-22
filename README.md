@@ -21,25 +21,7 @@ After reverse engineering the Little Kernel (LK) bootloader from HyperOS using G
 
 Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Protected Memory Block). The LK reads it before falling back to seccfg — when present, RPMB overrides seccfg even if seccfg says UNLOCK.
 
-```mermaid
-flowchart LR
-    BOOT([LK Boot]) --> MAGIC["mi_check_magic()"]
-
-    MAGIC -->|absent| SECCFG["seccfg state"]
-    MAGIC -->|present| LEN{"lock_state_len"}
-
-    LEN -->|"= 0"| L(["LOCKED"])
-    LEN -->|"> 0"| RSA["RSA-2048 verify"]
-
-    RSA -->|valid| U(["UNLOCKED"])
-    RSA -->|invalid| L
-
-    SECCFG -->|UNLOCK| U
-    SECCFG -->|LOCKED| L
-
-    style U fill:#1a6b1a,color:#fff,stroke:#2ecc40
-    style L fill:#7a0000,color:#fff,stroke:#cc2222
-```
+![Lock state flow diagram](proof/lock-flow.svg)
 
 **The fix:** erase the RPMB magic. This forces the LK to fall back to seccfg, which mtkclient can freely write to UNLOCK.
 
