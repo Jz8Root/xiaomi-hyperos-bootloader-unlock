@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-05-23 — Third Hardware Unlock + Cross-Device LK Discovery
+- Redmi Note 11S Global (miel, 2201117SG, MT6781) confirmed unlocked on hardware by community tester (itsme)
+- Key finding: `fastboot getvar version-bootloader` returns `fleur-90fe266d7-...` — Xiaomi ships the same fleur LK binary on miel unchanged
+- New quick-filter: any MT6781 device reporting `version-bootloader: fleur-*` is compatible with this exact recipe
+- RPMB dump analysis: magic present at 4 locations (sectors 16352, 57344, 81888, 122880); erasing sector 57344 alone is sufficient
+- miel promoted from Tier 2 → Tier 1 in COMPATIBILITY.md
+- mi_check_magic() boot flow diagram added to README
+
 ## 2026-05-16 — Phase 3: Full Method Released
 - Full technical writeup published on XDA
 - Root cause disclosed: dual-layer RPMB + seccfg lock verification

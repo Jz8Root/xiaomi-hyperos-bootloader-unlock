@@ -4,6 +4,10 @@
 > generations across different firmware versions and submodels — and they don't all
 > implement the RPMB magic check. Always run `scan_lk.py` on the LK extracted from
 > your specific device before assuming a row below applies to you.
+>
+> **Quick compatibility filter:** run `fastboot getvar version-bootloader`. If the output
+> starts with `fleur-`, your device ships the fleur LK binary and this procedure applies
+> unchanged. Confirmed on miel (Redmi Note 11S) — same binary, same recipe, same result.
 
 ## Tier 1 — PROVEN ON HARDWARE
 
@@ -11,12 +15,18 @@
 |-|-|-|-|-|-|-|-|-|
 | POCO M4 Pro 4G (fleur) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.11.0.TKEEUXM (Oct 2024) | `COMPATIBLE_FULL` | A (RPMB erase + seccfg) | UNLOCKED | 2026-03-23 | Jz8root |
 | Redmi Note 11 4G (fleur, 2201117SY) | MT6781 Helio G96 | SK Hynix H9HQ54AECMMDAR | `fleur-d01540d34-20220430143603` md5 `701bbd3ee76e780b030d8568368a7a4e` (HyperOS V816.0.1.0.TKEEUXM, EEA) | `COMPATIBLE_SECCFG_ONLY` (52/100) | B (seccfg only) | UNLOCKED | 2026-05-19 | miromraz |
+| Redmi Note 11S Global (miel, 2201117SG) | MT6781 Helio G96 | Samsung KM8L9001JM-B62 | `fleur-90fe266d7-20240412152854-20241206204609` (HyperOS OS1.0.9.0.TKEMIXM) | `COMPATIBLE_FULL` | A (RPMB erase — seccfg was already unlocked) | UNLOCKED | 2026-05 | itsme |
+
+> **Note on miel:** `fastboot getvar version-bootloader` returns `fleur-90fe266d7-...` — Xiaomi ships the
+> fleur LK binary on miel unchanged. The same recipe works without modification. RPMB dump shows magic at
+> 4 locations (sector 16352, 57344, 81888, 122880); erasing sector 57344 only is sufficient — the other
+> copies appear to be UFS RPMB address space mirroring (lower 16 MB mirrored to upper 16 MB).
 
 ## Tier 2 — CONFIRMED COMPATIBLE VIA LK ANALYSIS (unlock pending)
 
 | Device | SoC | Status |
 |-|-|-|
-| Redmi Note 11S (miel) | MT6781 | LK binary analyzed — magic, RSA key, offsets all match. Hardware test scheduled. |
+| *(no entries — all analyzed devices have now been tested on hardware)* | — | — |
 
 ## Tier 3 — PROBABLE (GitHub issues confirm same symptom)
 
