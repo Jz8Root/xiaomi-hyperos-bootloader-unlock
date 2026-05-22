@@ -19,6 +19,26 @@ Since MIUI 14.0.3+ and HyperOS, `mtkclient da seccfg unlock` succeeds without er
 
 After reverse engineering the Little Kernel (LK) bootloader from HyperOS using Ghidra, I found that Xiaomi introduced a **dual-layer lock verification**:
 
+```mermaid
+flowchart LR
+    BOOT([LK Boot]) --> MAGIC["mi_check_magic()"]
+
+    MAGIC -->|absent| SECCFG["seccfg state"]
+    MAGIC -->|present| LEN{"lock_state_len"}
+
+    LEN -->|"= 0"| L(["LOCKED"])
+    LEN -->|"> 0"| RSA["RSA-2048 verify"]
+
+    RSA -->|valid| U(["UNLOCKED"])
+    RSA -->|invalid| L
+
+    SECCFG -->|UNLOCK| U
+    SECCFG -->|LOCKED| L
+
+    style U fill:#1a6b1a,color:#fff,stroke:#2ecc40
+    style L fill:#7a0000,color:#fff,stroke:#cc2222
+```
+
 ```
 get_lock_state():
   1. seccfg_state = read_seccfg()           <-- FALLBACK (what mtkclient writes)
@@ -250,7 +270,8 @@ fastboot reboot
 Phone will boot into a fresh HyperOS setup wizard. Subsequent boots show the orange "unlocked"
 warning for ~10 s — that's normal for an unlocked Xiaomi device.
 
-## RPMB Sector Reference
+<details>
+<summary><strong>RPMB Sector Reference</strong> (click to expand)</summary>
 
 ### Proven: POCO M4 Pro 4G (fleur, Samsung UFS)
 
@@ -305,7 +326,12 @@ python3 scan_lk.py lk_a.bin --json  # structured output
 See [COMPATIBILITY.md](COMPATIBILITY.md) for the full device database — entries are indexed
 by LK build hash because the same codename can ship multiple LK generations.
 
-## FAQ
+</details>
+
+<details>
+<summary><strong>FAQ</strong> (click to expand)</summary>
+
+
 
 **Q: How can you erase RPMB without the device-specific RPMB key?**  
 A: mtkclient derives the RPMB authentication key via the HACC engine through SEJ after the Kamakiri BROM exploit — the same mechanism it uses to handle SecCfgV4 encryption. The key derivation happens transparently when you run the `da rpmb e` command.
@@ -318,6 +344,8 @@ A: Yes. `mtk da seccfg lock` relocks. Full lock/unlock cycle tested and reversib
 
 **Q: Why erase only 4 sectors?**  
 A: We only need to remove the magic string. The lock state length and signature data at higher sectors are irrelevant once the magic is absent — the LK falls back to seccfg without reading them.
+
+</details>
 
 ## Warnings
 
