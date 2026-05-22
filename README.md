@@ -21,7 +21,6 @@ After reverse engineering the Little Kernel (LK) bootloader from HyperOS using G
 
 Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Protected Memory Block). The LK reads it before falling back to seccfg — when present, RPMB overrides seccfg even if seccfg says UNLOCK.
 
-![Lock state flow diagram](proof/lock-flow.svg)
 
 **The fix:** erase the RPMB magic. This forces the LK to fall back to seccfg, which mtkclient can freely write to UNLOCK.
 
