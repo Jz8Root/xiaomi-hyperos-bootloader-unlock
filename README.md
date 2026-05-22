@@ -19,6 +19,8 @@ Since MIUI 14.0.3+ and HyperOS, `mtkclient da seccfg unlock` succeeds without er
 
 After reverse engineering the Little Kernel (LK) bootloader from HyperOS using Ghidra, I found that Xiaomi introduced a **dual-layer lock verification**:
 
+Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Protected Memory Block). The LK reads it before falling back to seccfg — when present, RPMB overrides seccfg even if seccfg says UNLOCK.
+
 ```mermaid
 flowchart LR
     BOOT([LK Boot]) --> MAGIC["mi_check_magic()"]
@@ -38,19 +40,6 @@ flowchart LR
     style U fill:#1a6b1a,color:#fff,stroke:#2ecc40
     style L fill:#7a0000,color:#fff,stroke:#cc2222
 ```
-
-```
-get_lock_state():
-  1. seccfg_state = read_seccfg()           <-- FALLBACK (what mtkclient writes)
-  2. rpmb_state   = mi_get_lock_state()     <-- PRIORITY (overrides seccfg!)
-
-  if rpmb_state == 1 (DEFAULT / no magic):
-      return seccfg_state    <-- seccfg decides
-  else:
-      return rpmb_state      <-- RPMB OVERRIDES seccfg
-```
-
-Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Protected Memory Block). When present, RPMB overrides seccfg — even if seccfg says UNLOCK, RPMB says LOCKED and wins.
 
 **The fix:** erase the RPMB magic. This forces the LK to fall back to seccfg, which mtkclient can freely write to UNLOCK.
 
