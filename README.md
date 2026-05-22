@@ -26,6 +26,8 @@ Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Prot
 
 **Why it persists across reboots:** when the magic is absent AND seccfg = UNLOCK, the LK does NOT rewrite the magic. The code path that restores the magic only triggers when seccfg != UNLOCK. This behavior is inferred from the Ghidra decompilation of `mi_get_lock_state()` and confirmed empirically: RPMB dumps taken after multiple reboots show the magic region remains zeroed. See [proof/VERIFICATION.md](proof/VERIFICATION.md) for dump evidence.
 
+![mi_check_magic() boot flow](assets/mi_check_magic_flow.png)
+
 | Lock State Value | Meaning |
 |-----------------|---------|
 | 1 | DEFAULT (RPMB not initialized, fallback to seccfg) |
