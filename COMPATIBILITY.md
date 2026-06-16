@@ -18,6 +18,7 @@
 | Redmi Note 11S Global (miel, 2201117SG) | MT6781 Helio G96 | Samsung KM8L9001JM-B62 | `fleur-90fe266d7-20240412152854-20241206204609` (HyperOS OS1.0.9.0.TKEMIXM) | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-05 | itsme |
 | Redmi Note 11S (miel, MT6781) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.9.0.TKEEUXM | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-06-15 | kwhj4ff67r-crypto |
 | Redmi Note 13 5G (gold) | MT6833 Dimensity 6080 | Samsung | HyperOS 3.0.9.0.VNQCNXM (Android 15) `gold-c2e4398a1-20260513092248-20260514074541` | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 65504** + seccfg) | UNLOCKED | 2026-06-15 | KTS618 |
+| Redmi 12 (fire) | MT6769Z Helio G85 | Samsung | HyperOS 2.0.207 (Android 14) | `COMPATIBLE_FULL` (100/100, **slot B** — lk_a was SECCFG_ONLY) | A (RPMB erase sector 57344 + seccfg, active slot B) | UNLOCKED | 2026-06-16 | piotrurban |
 
 > **Note on miel:** `fastboot getvar version-bootloader` returns `fleur-90fe266d7-...` — Xiaomi ships the
 > fleur LK binary on miel unchanged. The same recipe works without modification. RPMB dump shows magic at

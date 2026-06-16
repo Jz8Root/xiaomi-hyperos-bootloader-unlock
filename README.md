@@ -150,10 +150,12 @@ IMEI and baseband. Keep these backups for months — they're your recovery path.
 
 ### Step 1 — Identify your LK with `scan_lk.py` ⟵ DECISION POINT
 
-Run the scanner on the LK binary you just dumped:
+**Scan both slots — they can differ.** After an OTA update, slot A and slot B can carry different LK builds. Confirmed on Redmi 12 (fire, HyperOS 2.0): lk_a = COMPATIBLE_SECCFG_ONLY, lk_b = COMPATIBLE_FULL. The device boots on the active slot — use that result.
 
 ```bash
 python3 scan_lk.py lk_a.bin
+python3 scan_lk.py lk_b.bin
+# Use the result matching your active slot (check: fastboot getvar current-slot)
 ```
 
 The verdict drives which path you take:
@@ -173,9 +175,21 @@ The verdict drives which path you take:
 
 Three commands, one BROM cycle each:
 
+**⚠️ Before erasing: locate your RPMB magic sector first** — it is SoC-specific.
+Dump your RPMB and grep for the magic string:
+
 ```bash
-# STEP A1: Erase RPMB magic region
-python mtk.py da rpmb e --sector 57344 --sectors 4
+python3 mtk.py da rpmb r rpmb_dump.bin
+grep -boa "Jz8PNRUF" rpmb_dump.bin
+# byte_offset / 256 = your sector
+# MT6781/MT6769Z → 57344  |  MT6833 → 65504  |  unknown SoC → use grep result
+```
+
+Then erase the sector you found:
+
+```bash
+# STEP A1: Erase RPMB magic region (replace <YOUR_SECTOR> with grep result above)
+python mtk.py da rpmb e --sector <YOUR_SECTOR> --sectors 4
 
 # STEP A2: Unlock seccfg
 python mtk.py da seccfg unlock
@@ -186,8 +200,7 @@ the phone needs a fresh BROM entry** — unplug, redo the key combo, replug.
 
 If your device needs a specific preloader, add `--preloader preloader_CODENAME.bin` to each command.
 
-**Note on the erase:** only 4 sectors at 57344 are touched — just the magic region. Lock-state length
-(sector 57600) and signature data (sector 57856) are left untouched. Absent magic alone forces
+**Note on the erase:** only 4 sectors are touched — just the magic region. Absent magic alone forces
 the DEFAULT→seccfg fallback path.
 
 **Non-Samsung UFS:** sector 57344 is the *Samsung* layout. Hynix and other UFS vendors may have
@@ -290,8 +303,10 @@ unzip firmware.zip  # -> images/lk.img or lk_a.img
 # From device via mtkclient (recommended — matches what's actually running)
 python mtk.py r lk_a lk_a.bin
 
-# Run scanner
+# Run scanner — scan BOTH slots (lk_a and lk_b can differ after OTA)
 python3 scan_lk.py lk_a.bin
+python3 scan_lk.py lk_b.bin
+# Use the result matching your active slot (fastboot getvar current-slot)
 python3 scan_lk.py lk_a.bin --json  # structured output
 ```
 
@@ -325,7 +340,8 @@ A: We only need to remove the magic string. The lock state length and signature 
 2. **BACKUP NV PARTITIONS** (nvdata, nvcfg, nvram, persist, protect1, protect2) — without these, you risk "NV data corrupted" which breaks IMEI and baseband.
 3. **THIS WILL WIPE YOUR DATA.** Factory reset on first boot after unlock.
 4. **BROM V6 = NO GO.** If your SoC is MT6789 or newer, Kamakiri is patched in hardware.
-5. **HyperOS 1 PROVEN (Path A) + older MIUI/HyperOS LK builds PROVEN (Path B).** HyperOS 2/3 (2025+) have NOT been verified — run `scan_lk.py` first and report results.
+5. **HyperOS 1, 2, and 3 all CONFIRMED.** Method holds across the full HyperOS lifecycle. Always run `scan_lk.py` on both lk_a and lk_b first.
+6. **SCAN BOTH LK SLOTS.** lk_a and lk_b can carry different LK builds after an OTA. Confirmed on Redmi 12 (fire, HyperOS 2.0) — slot B had the RPMB lock, slot A didn't.
 6. Unlocking the bootloader voids manufacturer warranty.
 
 ## Credits
