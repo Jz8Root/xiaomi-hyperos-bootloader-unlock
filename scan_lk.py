@@ -45,13 +45,24 @@ RPMB_TYPE_ALT     = 0x1000000   # Alternative UFS type
 
 # RPMB offsets — LK-internal addressing (passed to rpmb_read()).
 # WARNING: These are NOT byte offsets in the mtkclient RPMB dump.
-# The mapping to dump offsets depends on the RPMB driver and UFS type.
-# For fleur (Samsung UFS): LK offset 0x3FE0 maps to dump offset 0xE00000 (sector 57344).
-# See proof/VERIFICATION.md for the proven sector math.
+# The mapping to dump offsets depends on the RPMB driver and UFS type AND SoC.
+# Known mappings (LK offset 0x3FE0):
+#   MT6781 Helio G96 (fleur/miel): dump offset 0xE00000 → sector 57344
+#   MT6833 Dimensity 6080 (gold) : dump offset 0xFFE000 → sector 65504
+# The sector reported in the verdict is estimated from the LK type constant — always
+# verify with: grep -boa "Jz8PNRUF" rpmb_dump.bin  (byte_offset / 256 = sector)
 RPMB_OFFSETS_SAMSUNG = {
-    "magic":           0x3FE0,     # LK-internal, maps to dump sector 57344
-    "lock_state_len":  0x40E0,     # LK-internal, maps to dump sector 57600
-    "signature_data":  0x41E0,     # LK-internal, maps to dump sector 57856
+    "magic":           0x3FE0,     # LK-internal, maps to dump sector 57344 (MT6781) or 65504 (MT6833)
+    "lock_state_len":  0x40E0,     # LK-internal
+    "signature_data":  0x41E0,     # LK-internal
+}
+
+# Known SoC-to-sector mappings for Samsung UFS (RPMB_TYPE_SAMSUNG = 0x400000)
+# Key: LK magic offset → (sector_MT6781, sector_MT6833, ...)
+# Use grep method to confirm: grep -boa "Jz8PNRUF" rpmb_dump.bin
+RPMB_SECTOR_KNOWN = {
+    "MT6781": 57344,   # Helio G96 — confirmed fleur, miel
+    "MT6833": 65504,   # Dimensity 6080 — confirmed gold (HyperOS 3.0, discovered by KTS618 2026-06-15)
 }
 
 # RPMB offsets for alternative type (0x1000000)
@@ -544,7 +555,12 @@ def generate_verdict(result: dict) -> dict:
         method = "RPMB erase (sector {}) + seccfg unlock".format(
             rpmb.get("magic_sector", "57344")
         )
-        message = "This device is compatible with the RPMB erase + seccfg unlock method."
+        message = (
+            "This device is compatible with the RPMB erase + seccfg unlock method. "
+            "WARNING: sector 57344 is the default for MT6781 (Helio G96). "
+            "On other SoCs (e.g. MT6833 Dimensity 6080 = sector 65504) the sector differs. "
+            "Confirm your sector first: dump RPMB and run: grep -boa \"Jz8PNRUF\" rpmb_dump.bin"
+        )
     elif score >= 40 and not magic["found"] and seccfg["version"]:
         compatibility = "COMPATIBLE_SECCFG_ONLY"
         method = "seccfg unlock only (no RPMB lock)"
