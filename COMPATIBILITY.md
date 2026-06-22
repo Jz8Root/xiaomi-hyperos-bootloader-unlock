@@ -79,7 +79,8 @@ prior expectation:
 |-|-|-|
 | HyperOS 1 (2024, OS1.0.x) — fresh-shipped device | `COMPATIBLE_FULL` (Path A) | LK rebuilt for RPMB magic — magic present, erase needed |
 | HyperOS 1 (2024, OS1.0.x) — updated *from* MIUI without LK rewrite | `COMPATIBLE_SECCFG_ONLY` (Path B) | Older LK never updated despite Android version bump (observed on fleur 2201117SY) |
-| HyperOS 2/3 (2025+) | UNKNOWN | Not yet observed — run `scan_lk.py` and report |
+| HyperOS 2 (2025) | `COMPATIBLE_FULL` (Path A) | Confirmed on fire/MT6769Z (piotrurban). lk_a/lk_b can diverge after OTA — scan both slots |
+| HyperOS 3 (2026, OS3.0.x, Android 15) | `COMPATIBLE_FULL` (Path A) | Confirmed on gold/MT6833 (KTS618). RPMB sector may differ from MT6781 — always grep the dump |
 | MIUI 14 (2023) | Varies | Some shipped with the new lock; many didn't |
 | MIUI 13 (2022) and earlier | `COMPATIBLE_SECCFG_ONLY` (Path B) | Pre-dates the RPMB lock layer entirely |
 

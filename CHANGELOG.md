@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-06-16 — v2.0.0: 6 Devices, 4 SoCs, Full HyperOS Lifecycle
+- Redmi 12 (fire, MT6769Z, HyperOS 2.0.207) confirmed unlocked by piotrurban — first HyperOS 2.0 confirmation
+- Key finding: lk_a and lk_b can carry different LK builds after OTA — slot A was COMPATIBLE_SECCFG_ONLY, slot B was COMPATIBLE (100/100). Always scan both slots.
+- MT6769Z RPMB sector confirmed at 57344 (same as MT6781)
+
+## 2026-06-15 — Fourth and Fifth Hardware Unlocks + New SoC
+- Redmi Note 13 5G (gold, MT6833/Dimensity 6080, HyperOS 3.0.9.0/Android 15) confirmed unlocked by KTS618 — first HyperOS 3.0 confirmation
+- Key finding: RPMB magic at sector 65504 on MT6833 (not 57344). Sector is SoC-specific — always grep the dump before erasing.
+- Redmi Note 11S (miel, MT6781, HyperOS 1.0.9.0) confirmed unlocked by kwhj4ff67r-crypto — independent replication of ITSME's result
+- Step 0 added to procedure: mandatory sector discovery via `grep -boa "Jz8PNRUF" rpmb_dump.bin`
+- FAQ updated: Windows struct.error workaround (WSL2/Live USB), A/B slot divergence after OTA
+- RPMB sector reference table expanded with MT6833 and MT6769Z entries
+- HyperOS lifecycle fully covered: 1 (original PoC), 2 (piotrurban), 3 (KTS618)
+
 ## 2026-05-23 — Third Hardware Unlock + Cross-Device LK Discovery
 - Redmi Note 11S Global (miel, 2201117SG, MT6781) confirmed unlocked on hardware by community tester (itsme)
 - Key finding: `fastboot getvar version-bootloader` returns `fleur-90fe266d7-...` — Xiaomi ships the same fleur LK binary on miel unchanged
