@@ -45,7 +45,40 @@ ship different LK builds with different lock implementations.
 - [mtkclient](https://github.com/bkerler/mtkclient) with Kamakiri BROM exploit
 - Access to BROM mode (see [Entering BROM Mode](#entering-brom-mode) below for the precise procedure)
 - Quality USB DATA cable (not charge-only)
+- **A USB 2.0 port.** Not USB 3.0. See below, this one silently ruins runs.
 - **MANDATORY:** Full backup of NV partitions (commands below)
+
+### Use a USB 2.0 port, never USB 3.0
+
+On this chipset family, RPMB and seccfg writes over a USB 3.0 controller get acknowledged by
+mtkclient's protocol layer and **never physically commit to flash**. The tool prints
+`Successfully wrote seccfg`, the operation looks perfect, and nothing has changed on the device.
+
+The signature is unmistakable once you know it: every command reports success, and every flag is
+exactly as it was before you started.
+
+```
+fastboot oem lks           -> lks = 1        unchanged
+fastboot getvar unlocked   -> unlocked: no   unchanged
+fastboot getvar secure     -> secure: yes    unchanged
+```
+
+Diagnosed on earth/MT6769Z in [#8][i8], where the reporter had switched to the blue port without
+realising. Use the **black** USB 2.0 port, front or back, and prefer a direct connection over a hub.
+
+Two traps worth knowing:
+
+- some laptops have a physically black port that is **internally wired to the xHCI 3.0
+  controller** anyway, through sloppy board routing. If a second attempt on the same port fails
+  the same silent way, try a different port, a USB 2.0 hub, or another machine entirely
+- USB-C ports are almost always 3.x. Prefer a USB-A 2.0 port with an A-to-C cable
+
+**Always verify by re-reading the RPMB, never by trusting the log line:**
+
+```bash
+python mtk.py da rpmb r rpmb_check.bin
+grep -boa "Jz8PNRUF" rpmb_check.bin
+```
 
 
 ### Linux Pre-flight
@@ -238,6 +271,20 @@ grep -boa "Jz8PNRUF" rpmb_dump.bin
 # MT6781/MT6769Z → 57344  |  MT6833 → 65504  |  unknown SoC → use grep result
 ```
 
+**If grep returns more than one offset, they are not separate copies.** The dump mtkclient
+produces is larger than the physical RPMB, so the same location shows up several times. Hits
+separated by exactly 16 MiB (`0x1000000`) are aliases of each other, because the address field in
+an RPMB frame is two bytes and therefore wraps at 65536 sectors:
+
+```
+122880 mod 65536 = 57344      same physical location, seen twice
+```
+
+Erase the **lowest** offset of each aliased pair, once. On rubypro, grep returns `14680064` and
+`31457280`, which is sector 57344 and its 16 MiB alias, so only 57344 gets erased. On miel it
+returned four hits collapsing to two real locations (16352 and 57344), and 57344 alone was
+sufficient.
+
 Then erase the sector you found:
 
 ```bash
@@ -289,10 +336,14 @@ contains `wrong unlock data` instead of `milock state`, the boot chain has flagg
 tampered, which means it ran and inspected the RPMB. That distinguishes "erased then restored"
 from "never erased", which magic presence alone cannot. Observed by LucaCraft89 ([#13][i13]).
 
-**Non-Samsung UFS:** sector 57344 is the *Samsung* layout. Hynix and other UFS vendors may have
-the magic at different offsets — see [RPMB Sector Reference](#rpmb-sector-reference) below. If
-your dump's sector 57344 is empty AND `scan_lk.py` returned `COMPATIBLE_SECCFG_ONLY`, you don't
-need to find the magic — skip to Path B.
+**Storage vendor does not change the sector.** An earlier version of this document said sector
+57344 was "the Samsung layout" and that Hynix parts might place the magic elsewhere. That turned
+out to be wrong: rubypro carries SK Hynix `H9QT1G6DN6X132` and its magic sits at exactly the same
+offset, confirmed by grep in [#13][i13]. What does move the sector is the **SoC**, not the storage
+part. MT6781 and MT6769Z use 57344, MT6833 uses 65504.
+
+If your dump has no magic at all AND `scan_lk.py` returned `COMPATIBLE_SECCFG_ONLY`, you do not
+need to find it, skip to Path B.
 
 ### Path B — `COMPATIBLE_SECCFG_ONLY` (no RPMB magic — older LK)
 
@@ -433,6 +484,17 @@ A: Yes. `mtk da seccfg lock` relocks. Full lock/unlock cycle tested and reversib
 **Q: Why erase only 4 sectors?**  
 A: We only need to remove the magic string. The lock state length and signature data at higher sectors are irrelevant once the magic is absent — the LK falls back to seccfg without reading them.
 
+**Q: Every command said success but nothing is unlocked. What happened?**  
+A: Two known causes, both silent, and both print a perfect log.
+
+1. **You were on a USB 3.0 port.** Writes get acknowledged but never reach flash. Move to a black USB 2.0 port and redo the whole procedure. See [Use a USB 2.0 port](#use-a-usb-20-port-never-usb-30).
+2. **The phone started up between the erase and the unlock.** The preloader rewrites the magic on any start-up, and the Mi logo alone is enough. Never use the Power button in that window. See [the rule](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
+
+Diagnose by re-reading rather than by reading logs: dump the RPMB in a fresh BROM session and `grep -boa "Jz8PNRUF"`. If the magic is present, the erase did not survive. If the record at `0xE20000` reads `wrong unlock data` instead of `milock state`, the boot chain ran and reverted you.
+
+**Q: `fastboot oem lks` returns an error. Did it fail?**  
+A: Not necessarily. That OEM command is not implemented on every LK build. On sea/MT6781 it returns `EX_UNSUPPORTED_OPERATION` while the device is genuinely unlocked. `fastboot getvar unlocked` is the authoritative check.
+
 </details>
 
 ## Warnings
@@ -440,10 +502,19 @@ A: We only need to remove the magic string. The lock state length and signature 
 1. **BACKUP RPMB FIRST.** Step 1 is your safety net. Never skip it.
 2. **BACKUP NV PARTITIONS** (nvdata, nvcfg, nvram, persist, protect1, protect2) — without these, you risk "NV data corrupted" which breaks IMEI and baseband.
 3. **THIS WILL WIPE YOUR DATA.** Factory reset on first boot after unlock.
-4. **BROM V6 = NO GO.** If your SoC is MT6789 or newer, Kamakiri is patched in hardware.
-5. **HyperOS 1, 2, and 3 all CONFIRMED.** Method holds across the full HyperOS lifecycle. Always run `scan_lk.py` on both lk_a and lk_b first.
-6. **SCAN BOTH LK SLOTS.** lk_a and lk_b can carry different LK builds after an OTA. Confirmed on Redmi 12 (fire, HyperOS 2.0) — slot B had the RPMB lock, slot A didn't.
-6. Unlocking the bootloader voids manufacturer warranty.
+4. **NEVER TOUCH THE POWER BUTTON** between the RPMB erase and `seccfg unlock`. The preloader
+   rewrites the magic on any start-up, and reaching the Mi logo is enough. See
+   [the rule](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
+5. **USB 2.0 ONLY.** A USB 3.0 controller makes writes report success without committing to flash.
+   See [Use a USB 2.0 port](#use-a-usb-20-port-never-usb-30).
+6. **BROM V6 = NO GO,** but do not read that as a number comparison. MediaTek part numbers are not
+   chronological: MT6877 is a 2021 part, older than the 2022 MT6789, and Kamakiri runs on it. The
+   patched parts are MT6789, MT6855 and later designs. See [COMPATIBILITY.md](COMPATIBILITY.md).
+7. **HyperOS 1, 2, and 3 all CONFIRMED.** Method holds across the full HyperOS lifecycle. Always run `scan_lk.py` on both lk_a and lk_b first.
+8. **SCAN BOTH LK SLOTS.** lk_a and lk_b can carry different LK builds after an OTA. Confirmed on Redmi 12 (fire, HyperOS 2.0) — slot B had the RPMB lock, slot A didn't.
+9. **VERIFY BY RE-READING, NOT BY READING LOGS.** Both failure modes above print success. Only a
+   fresh RPMB dump and `fastboot getvar unlocked` tell you the truth.
+10. Unlocking the bootloader voids manufacturer warranty.
 
 ## Credits
 
@@ -459,5 +530,6 @@ A: We only need to remove the magic string. The lock state length and signature 
 
 Researched & tested by: **Jz8root**
 
+[i8]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/8
 [i12]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/12
 [i13]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/13
