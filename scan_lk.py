@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scan_lk.py — Jz8root (https://github.com/Jz8Root/xiaomi-mtk-bootloader-unlock)
+# scan_lk.py — Jz8root (https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock)
 # Original research: XDA thread https://xdaforums.com/t/4784527/
 # License: AGPL-3.0
 """
@@ -15,7 +15,7 @@ Usage:
 Output:
     Analysis report including:
     - Presence of the RPMB magic string
-    - RPMB type (UFS Samsung 0x400000 or 0x1000000)
+    - RPMB region size constants (informational, not discriminating)
     - Xiaomi RSA-2048 public key detection
     - Key function signatures
     - Compatibility verdict (0-100%)
@@ -39,9 +39,24 @@ from typing import Optional
 # during reverse engineering — not the other way around.
 RPMB_MAGIC = b"Jz8PNRUF"
 
-# Known RPMB UFS type identifiers
-RPMB_TYPE_SAMSUNG = 0x400000    # UFS Samsung type
-RPMB_TYPE_ALT     = 0x1000000   # Alternative UFS type
+# RPMB region size constants seen in LK binaries.
+#
+# WARNING, read before trusting the reported value: these are plain 32-bit
+# integers searched for anywhere in the binary. Little-endian, 0x400000 is the
+# byte sequence 00 00 40 00, which occurs 78 times in a real 4 MB LK, and
+# 0x1000000 is 00 00 00 01, which occurs 6919 times. They are ordinary values in
+# any structured binary, not markers.
+#
+# Consequence: this detection is NOT discriminating and is reported for
+# information only. It carries no weight in the compatibility score, because a
+# MediaTek preloader, which has nothing to do with the RPMB lock, matches it
+# too. It also says nothing about the storage vendor: rubypro carries SK Hynix
+# H9QT1G6DN6X132 and matches the same constant as the Samsung parts.
+#
+# The sector actually depends on the SoC, and the only reliable way to obtain it
+# is to grep the RPMB dump. See RPMB_SECTOR_KNOWN below.
+RPMB_SIZE_4M  = 0x400000     # was misleadingly named RPMB_TYPE_SAMSUNG
+RPMB_SIZE_16M = 0x1000000    # was misleadingly named RPMB_TYPE_ALT
 
 # RPMB offsets — LK-internal addressing (passed to rpmb_read()).
 # WARNING: These are NOT byte offsets in the mtkclient RPMB dump.
@@ -57,12 +72,14 @@ RPMB_OFFSETS_SAMSUNG = {
     "signature_data":  0x41E0,     # LK-internal
 }
 
-# Known SoC-to-sector mappings for Samsung UFS (RPMB_TYPE_SAMSUNG = 0x400000)
-# Key: LK magic offset → (sector_MT6781, sector_MT6833, ...)
-# Use grep method to confirm: grep -boa "Jz8PNRUF" rpmb_dump.bin
+# Known SoC-to-sector mappings, all confirmed on hardware.
+# The sector depends on the SoC, not on the storage vendor. Always confirm with
+# grep, this table is a prior expectation: grep -boa "Jz8PNRUF" rpmb_dump.bin
 RPMB_SECTOR_KNOWN = {
-    "MT6781": 57344,   # Helio G96 — confirmed fleur, miel
+    "MT6781": 57344,   # Helio G96 — confirmed fleur, miel, sea
+    "MT6769Z": 57344,  # Helio G85 — confirmed fire
     "MT6833": 65504,   # Dimensity 6080 — confirmed gold (HyperOS 3.0, discovered by KTS618 2026-06-15)
+    "MT6877": 57344,   # Dimensity 920/1080 — confirmed rubypro (SK Hynix UFS, same sector)
 }
 
 # RPMB offsets for alternative type (0x1000000)
@@ -196,42 +213,31 @@ def scan_magic(data: bytes) -> dict:
 
 
 def scan_rpmb_type(data: bytes) -> dict:
-    """Detects the RPMB type used (0x400000 or 0x1000000)."""
-    types_found = []
+    """
+    Counts occurrences of the RPMB region size constants.
 
-    # Search for RPMB type constants
-    # In ARM Thumb, constants are often loaded via LDR from literal pool
-    for rpmb_type, name in [(RPMB_TYPE_SAMSUNG, "UFS_Samsung_0x400000"), (RPMB_TYPE_ALT, "UFS_Alt_0x1000000")]:
-        # Search as 32-bit little-endian value
-        type_bytes = struct.pack('<I', rpmb_type)
-        offset = 0
-        while True:
-            pos = data.find(type_bytes, offset)
-            if pos == -1:
-                break
-            types_found.append({
-                "type": name,
-                "value": f"0x{rpmb_type:X}",
-                "offset": pos,
-                "offset_hex": f"0x{pos:08X}",
-            })
-            offset = pos + 1
+    This is informational only and deliberately excluded from the score. Both
+    constants are common byte sequences in any structured binary, so a hit
+    proves nothing. See the comment on RPMB_SIZE_4M for the measured counts.
+    """
+    counts = {}
+    for value, name in [(RPMB_SIZE_4M, "0x400000"), (RPMB_SIZE_16M, "0x1000000")]:
+        counts[name] = data.count(struct.pack('<I', value))
 
-    # Determine primary type
-    primary_type = None
-    offsets = None
-    if any(t["type"] == "UFS_Samsung_0x400000" for t in types_found):
-        primary_type = "UFS_Samsung_0x400000"
-        offsets = {k: f"0x{v:04X}" for k, v in RPMB_OFFSETS_SAMSUNG.items()}
-    elif any(t["type"] == "UFS_Alt_0x1000000" for t in types_found):
-        primary_type = "UFS_Alt_0x1000000"
-        offsets = {k: f"0x{v:04X}" for k, v in RPMB_OFFSETS_ALT.items()}
+    # The 4M layout is the one every confirmed device has matched so far, so its
+    # LK-internal offsets are the ones worth showing. This is a display default,
+    # not a detection result.
+    offsets = {k: f"0x{v:04X}" for k, v in RPMB_OFFSETS_SAMSUNG.items()}
 
     return {
-        "types_found": types_found,
-        "primary_type": primary_type,
+        "size_constant_counts": counts,
+        "discriminating": False,
+        "note": "informational only, these constants occur naturally in any binary",
         "rpmb_offsets": offsets,
-        "magic_sector": 57344 if primary_type == "UFS_Samsung_0x400000" else (0xE000 // 0x100 if primary_type else None),
+        # Deliberately not derived from the constants above. The sector is
+        # SoC-specific and must come from grep on an actual RPMB dump.
+        "magic_sector": None,
+        "known_sectors": RPMB_SECTOR_KNOWN,
     }
 
 
@@ -467,13 +473,20 @@ def generate_verdict(result: dict) -> dict:
     details = []
     blockers = []
 
-    # 1. Magic "Jz8PNRUF" present (40 points — critical)
+    # Weighting note: the RPMB size constants used to be worth 15 points here.
+    # They were removed because they are not discriminating, a preloader matched
+    # them too. Those 15 points were redistributed across the four remaining
+    # checks (40+15+15+15 becomes 47+18+18+17) so that the total stays at 100 and
+    # every previously reported verdict is preserved, including Path B devices
+    # which would otherwise have dropped below the seccfg-only threshold.
+
+    # 1. Magic "Jz8PNRUF" present (47 points — critical, the only fully reliable signal)
     if magic["found"]:
-        score += 40
+        score += 47
         details.append({
             "check": "Magic Jz8PNRUF",
             "status": "FOUND",
-            "points": 40,
+            "points": 47,
             "note": f"Found {magic['count']} time(s). This device uses the Xiaomi RPMB lock mechanism.",
         })
     else:
@@ -484,30 +497,24 @@ def generate_verdict(result: dict) -> dict:
             "note": "Magic not found. Either MIUI13 or older (seccfg alone works), or different mechanism.",
         })
 
-    # 2. RPMB type detected (15 points)
-    if rpmb["primary_type"]:
-        score += 15
-        details.append({
-            "check": "RPMB Type",
-            "status": "DETECTED",
-            "points": 15,
-            "note": f"Type: {rpmb['primary_type']}. RPMB offsets identified.",
-        })
-    else:
-        details.append({
-            "check": "RPMB Type",
-            "status": "NOT_FOUND",
-            "points": 0,
-            "note": "RPMB type not identified.",
-        })
+    # 2. RPMB size constants — reported, never scored. See scan_rpmb_type().
+    details.append({
+        "check": "RPMB size constants",
+        "status": "INFORMATIONAL",
+        "points": 0,
+        "note": ("counts: " + ", ".join(f"{k} x{v}" for k, v in rpmb["size_constant_counts"].items())
+                 + ". Not discriminating, these values occur naturally in any binary "
+                   "and say nothing about the storage vendor. The sector is SoC-specific, "
+                   "confirm it with: grep -boa \"Jz8PNRUF\" rpmb_dump.bin"),
+    })
 
-    # 3. RSA key found (15 points)
+    # 3. RSA key found (18 points)
     if rsa["modulus_found"]:
-        score += 15
+        score += 18
         details.append({
             "check": "RSA-2048 Key",
             "status": "FOUND",
-            "points": 15,
+            "points": 18,
             "note": f"RSA {rsa.get('key_size_bits', '?')}-bit public key found. Signature verification active.",
         })
     else:
@@ -519,13 +526,13 @@ def generate_verdict(result: dict) -> dict:
             "note": "RSA key not found (may be different format or no signature verification).",
         })
 
-    # 4. seccfg detected (15 points)
+    # 4. seccfg detected (18 points)
     if seccfg["version"]:
-        score += 15
+        score += 18
         details.append({
             "check": "seccfg",
             "status": "DETECTED",
-            "points": 15,
+            "points": 18,
             "note": f"Version: {seccfg['version']}. seccfg support confirmed.",
         })
     else:
@@ -537,10 +544,10 @@ def generate_verdict(result: dict) -> dict:
         })
         blockers.append("seccfg not detected")
 
-    # 5. Key functions detected (15 points)
+    # 5. Key functions detected (17 points)
     key_funcs = ["mi_check_magic", "fastboot_oem_lks"]
     funcs_found = sum(1 for f in key_funcs if f in functions["detected"])
-    func_score = int(15 * (funcs_found / len(key_funcs)))
+    func_score = int(17 * (funcs_found / len(key_funcs)))
     score += func_score
     details.append({
         "check": "Key Functions",
@@ -552,14 +559,16 @@ def generate_verdict(result: dict) -> dict:
     # Generate overall verdict
     if score >= 70 and magic["found"]:
         compatibility = "COMPATIBLE"
-        method = "RPMB erase (sector {}) + seccfg unlock".format(
-            rpmb.get("magic_sector", "57344")
-        )
+        method = "RPMB erase (grep your sector) + seccfg unlock"
         message = (
             "This device is compatible with the RPMB erase + seccfg unlock method. "
-            "WARNING: sector 57344 is the default for MT6781 (Helio G96). "
-            "On other SoCs (e.g. MT6833 Dimensity 6080 = sector 65504) the sector differs. "
-            "Confirm your sector first: dump RPMB and run: grep -boa \"Jz8PNRUF\" rpmb_dump.bin"
+            "The sector is SoC-specific and cannot be read from the LK alone: "
+            "MT6781/MT6769Z/MT6877 = 57344, MT6833 = 65504. Confirm yours with: "
+            "python3 mtk.py da rpmb r rpmb_dump.bin && grep -boa \"Jz8PNRUF\" rpmb_dump.bin "
+            "(byte offset / 256 = sector). Hits exactly 16 MiB apart are aliases of the same "
+            "location, erase the lowest one only. "
+            "CRITICAL: never use the Power button between the erase and the unlock. The "
+            "preloader rewrites the magic on any start-up, and the Mi logo alone is enough."
         )
     elif score >= 40 and not magic["found"] and seccfg["version"]:
         compatibility = "COMPATIBLE_SECCFG_ONLY"
@@ -616,12 +625,15 @@ def format_report(result: dict) -> str:
             lines.append(f"    @ {occ['offset_hex']}")
     lines.append("")
 
-    # RPMB
+    # RPMB, LK-internal offsets and the known per-SoC sectors
     r = result["rpmb"]
-    lines.append(f"  [RPMB] Type : {r['primary_type'] or 'Not detected'}")
+    lines.append(f"  [RPMB] LK-internal offsets:")
     if r["rpmb_offsets"]:
         for k, v_val in r["rpmb_offsets"].items():
             lines.append(f"    {k:20s} : {v_val}")
+    lines.append(f"    known sectors        : " + ", ".join(
+        f"{soc}={sec}" for soc, sec in r["known_sectors"].items()))
+    lines.append(f"    your sector          : grep -boa \"Jz8PNRUF\" rpmb_dump.bin")
     lines.append("")
 
     # RSA
@@ -692,12 +704,16 @@ def main():
         print(f"[ERROR] File too large ({file_size:,} bytes, max {MAX_FILE_SIZE:,}). Are you sure this is an LK binary?")
         sys.exit(1)
 
-    print(f"[*] Reading {filepath}...")
+    # Progress goes to stderr so that --json produces parseable output on stdout.
+    # Without this, "scan_lk.py x --json | jq" fails on the [*] lines.
+    log = sys.stderr if json_output else sys.stdout
+
+    print(f"[*] Reading {filepath}...", file=log)
     with open(filepath, "rb") as f:
         data = f.read()
 
-    print(f"[*] Size: {len(data):,} bytes")
-    print(f"[*] Scanning...")
+    print(f"[*] Size: {len(data):,} bytes", file=log)
+    print(f"[*] Scanning...", file=log)
 
     result = scan_binary(data)
 
