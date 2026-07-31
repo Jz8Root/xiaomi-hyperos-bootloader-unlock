@@ -414,26 +414,45 @@ warning for ~10 s — that's normal for an unlocked Xiaomi device.
 
 Verified by RPMB dump analysis. See [proof/VERIFICATION.md](proof/VERIFICATION.md) for full evidence.
 
-| Data | Dump Byte Offset | mtkclient Sector |
-|------|-----------------|-----------------|
-| Lock magic | **0xE00000** | **57344** |
-| Lock state length | 0xE10000 | 57600 |
-| Signature data | 0xE20000 | 57856 |
+| Data | Dump Byte Offset | mtkclient Sector | Content |
+|------|-----------------|-----------------|---------|
+| Lock magic | **0xE00000** | **57344** | `Jz8PNRUF`, 8 bytes |
+| Lock state length | 0xE10000 | 57600 | length of the string at 0xE20000 |
+| Signature data | 0xE20000 | 57856 | `milock state`, or `wrong unlock data` after tampering |
 
 Sector math: `byte_offset / 256 = sector` → `0xE00000 / 0x100 = 57344`
 
 Command: `da rpmb e --sector 57344 --sectors 4`
 
+> **`0xE10000` is a length field, not a counter.** It holds the length of the string stored at
+> `0xE20000`, and it is easy to misread as a write counter. On rubypro it was seen going from
+> `0x0C` to `0x11` alongside the string changing from `milock state` (12 characters) to
+> `wrong unlock data` (17 characters). Both fields are updated together by the boot chain, so a
+> change there means something inspected the record, not that a write was authenticated. The real
+> RPMB write counter is not in the addressable data area at all, it is a controller register
+> returned inside the response frame.
+
 > **Note:** The LK code internally uses offset 0x3FE0 when calling `rpmb_read()`. The mapping
 > from this LK-internal address to the physical dump offset 0xE00000 is handled by the RPMB
-> driver and depends on the UFS type. For users, only the mtkclient sector number matters.
+> driver. For users, only the mtkclient sector number matters.
 
-### Other UFS types (unverified)
+### Other SoCs
 
-Devices with different UFS RPMB configurations may use different sector numbers. If your
-device doesn't match sector 57344, dump your RPMB first (`da rpmb r rpmb_dump.bin`), then
-search for the magic string: `grep -boa "Jz8PNRUF" rpmb_dump.bin` to find the correct offset.
-Convert to sector: `byte_offset / 256 = sector`.
+The sector is **SoC-specific, not storage-vendor-specific**. rubypro carries SK Hynix
+`H9QT1G6DN6X132` and has its magic at 57344 like the Samsung MT6781 parts, so do not go looking
+for a different offset just because your UFS is not Samsung.
+
+Known values:
+
+| SoC | Sector | Dump offset | Confirmed by |
+|-|-|-|-|
+| MT6781 (Helio G96) | 57344 | `0xE00000` | fleur, miel, sea |
+| MT6769Z (Helio G85) | 57344 | `0xE00000` | fire |
+| MT6833 (Dimensity 6080) | 65504 | `0xFFE000` | gold, found by KTS618 |
+| MT6877 (Dimensity 920/1080) | 57344 | `0xE00000` | rubypro |
+
+If your SoC is not listed, dump the RPMB and grep. And read the note on multiple hits above:
+offsets exactly 16 MiB apart are aliases of one location, not separate copies.
 
 ## scan_lk.py — How the Scanner Works
 
