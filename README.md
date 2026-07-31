@@ -250,7 +250,13 @@ The verdict drives which path you take:
 |-|-|-|
 | `COMPATIBLE_FULL` | Magic `Jz8PNRUF` present in LK → `mi_check_magic()` is active | **Path A** below |
 | `COMPATIBLE_SECCFG_ONLY` | Magic absent → LK falls back to seccfg unconditionally | **Path B** below |
-| Other / `NOT_COMPATIBLE` | Investigate manually — share your `scan_lk.py --json` output in an issue | — |
+| `MAYBE` / `UNKNOWN` | Not enough evidence to classify. Investigate manually, and share your `scan_lk.py --json` output in an issue | neither |
+
+> **Do not read the Path B score as a confidence level.** A `COMPATIBLE_SECCFG_ONLY` verdict
+> tops out at **44/100 by construction**, because 47 of the 100 points are the magic string
+> that a Path B device does not have, and the `mi_check_magic` check keys off that same
+> string. A 31/100 Path B verdict is not a weak result: the absent magic *is* the finding.
+> Only Path A verdicts should be read against the 0-100 scale.
 
 > Older fleur units (and other "HyperOS-eligible" devices) ship the MIUI-13-era LK
 > that Xiaomi never updated. On those, the RPMB lock layer simply isn't implemented

@@ -158,6 +158,38 @@ LOCK_STATE_CONSTANTS = {
     4: "LOCK",
 }
 
+# ═══════════════════════════════════════════════════════════
+# SCORE WEIGHTS
+# ═══════════════════════════════════════════════════════════
+#
+# History: the RPMB size constants used to be a scored check worth 15 points.
+# They were removed because they are not discriminating: a MediaTek preloader
+# matched them too and was awarded the full 15. Rather than dropping the 15
+# points, they were redistributed across the four remaining checks so the total
+# stays at 100 and no Path A verdict moved:
+#
+#   magic 40 -> 47, RSA 15 -> 18, seccfg 15 -> 18, functions 15 -> 17
+#
+# Named rather than inlined so that PATH_B_CEILING below stays true if these are
+# ever rebalanced again. The Path B threshold used to be a hardcoded 40 against a
+# scale Path B cannot reach, which is what made the redistribution reclassify
+# working devices. See the verdict branch in generate_verdict().
+W_MAGIC   = 47   # magic present, the only fully reliable signal
+W_RSA     = 18   # Xiaomi RSA-2048 modulus found
+W_RSA_ABS = 5    # partial credit: key absent may just mean a different format
+W_SECCFG  = 18   # seccfg version detected
+W_FUNCS   = 17   # key functions, prorated over KEY_FUNCS
+W_TOTAL   = W_MAGIC + W_RSA + W_SECCFG + W_FUNCS   # 100
+
+# Functions that carry score. mi_check_magic is detected through the magic
+# string itself, so a binary without the magic can never claim more than half of
+# W_FUNCS no matter how complete its LK is.
+KEY_FUNCS = ["mi_check_magic", "fastboot_oem_lks"]
+
+# The most a Path B binary can score: no magic, and the function check capped at
+# half because mi_check_magic keys off the magic. 18 + 18 + 8 = 44.
+PATH_B_CEILING = W_RSA + W_SECCFG + int(W_FUNCS * (1 / len(KEY_FUNCS)))
+
 
 def scan_binary(data: bytes) -> dict:
     """
@@ -469,24 +501,17 @@ def generate_verdict(result: dict) -> dict:
     functions = result["functions"]
 
     score = 0
-    max_score = 100
+    max_score = W_TOTAL
     details = []
     blockers = []
 
-    # Weighting note: the RPMB size constants used to be worth 15 points here.
-    # They were removed because they are not discriminating, a preloader matched
-    # them too. Those 15 points were redistributed across the four remaining
-    # checks (40+15+15+15 becomes 47+18+18+17) so that the total stays at 100 and
-    # every previously reported verdict is preserved, including Path B devices
-    # which would otherwise have dropped below the seccfg-only threshold.
-
-    # 1. Magic "Jz8PNRUF" present (47 points — critical, the only fully reliable signal)
+    # 1. Magic "Jz8PNRUF" present. Critical, the only fully reliable signal
     if magic["found"]:
-        score += 47
+        score += W_MAGIC
         details.append({
             "check": "Magic Jz8PNRUF",
             "status": "FOUND",
-            "points": 47,
+            "points": W_MAGIC,
             "note": f"Found {magic['count']} time(s). This device uses the Xiaomi RPMB lock mechanism.",
         })
     else:
@@ -508,31 +533,31 @@ def generate_verdict(result: dict) -> dict:
                    "confirm it with: grep -boa \"Jz8PNRUF\" rpmb_dump.bin"),
     })
 
-    # 3. RSA key found (18 points)
+    # 3. RSA key found
     if rsa["modulus_found"]:
-        score += 18
+        score += W_RSA
         details.append({
             "check": "RSA-2048 Key",
             "status": "FOUND",
-            "points": 18,
+            "points": W_RSA,
             "note": f"RSA {rsa.get('key_size_bits', '?')}-bit public key found. Signature verification active.",
         })
     else:
-        score += 5  # partial: might just be different key format
+        score += W_RSA_ABS  # partial: might just be different key format
         details.append({
             "check": "RSA-2048 Key",
             "status": "NOT_FOUND",
-            "points": 5,
+            "points": W_RSA_ABS,
             "note": "RSA key not found (may be different format or no signature verification).",
         })
 
-    # 4. seccfg detected (18 points)
+    # 4. seccfg detected
     if seccfg["version"]:
-        score += 18
+        score += W_SECCFG
         details.append({
             "check": "seccfg",
             "status": "DETECTED",
-            "points": 18,
+            "points": W_SECCFG,
             "note": f"Version: {seccfg['version']}. seccfg support confirmed.",
         })
     else:
@@ -544,10 +569,9 @@ def generate_verdict(result: dict) -> dict:
         })
         blockers.append("seccfg not detected")
 
-    # 5. Key functions detected (17 points)
-    key_funcs = ["mi_check_magic", "fastboot_oem_lks"]
-    funcs_found = sum(1 for f in key_funcs if f in functions["detected"])
-    func_score = int(17 * (funcs_found / len(key_funcs)))
+    # 5. Key functions detected
+    funcs_found = sum(1 for f in KEY_FUNCS if f in functions["detected"])
+    func_score = int(W_FUNCS * (funcs_found / len(KEY_FUNCS)))
     score += func_score
     details.append({
         "check": "Key Functions",
@@ -556,9 +580,13 @@ def generate_verdict(result: dict) -> dict:
         "note": f"{functions['total']} function references found: {', '.join(functions['detected'][:5])}",
     })
 
-    # Generate overall verdict
+    # Generate overall verdict.
+    #
+    # Verdict names are part of the public contract: README.md indexes its two
+    # procedure paths by these exact strings, and COMPATIBILITY.md records them
+    # per device. Renaming one means updating both.
     if score >= 70 and magic["found"]:
-        compatibility = "COMPATIBLE"
+        compatibility = "COMPATIBLE_FULL"
         method = "RPMB erase (grep your sector) + seccfg unlock"
         message = (
             "This device is compatible with the RPMB erase + seccfg unlock method. "
@@ -570,10 +598,47 @@ def generate_verdict(result: dict) -> dict:
             "CRITICAL: never use the Power button between the erase and the unlock. The "
             "preloader rewrites the magic on any start-up, and the Mi logo alone is enough."
         )
-    elif score >= 40 and not magic["found"] and seccfg["version"]:
+    # Path B is gated on evidence, not on the score.
+    #
+    # The score is built for Path A and a Path B device can never reach much of
+    # it. 47 of the 100 points are the magic, which Path B by definition does not
+    # have, and the mi_check_magic function check is itself detected through the
+    # magic string, so the function points are structurally capped at half. The
+    # Path B ceiling is therefore 18 + 18 + 8 = 44, and the old "score >= 40"
+    # left four points of headroom on a scale that Path B does not live on.
+    #
+    # That was survivable only because the RPMB size-constant check used to hand
+    # every binary a free 15 points. Removing it (correctly, it matched a
+    # preloader) took the realistic Path B range down to 44 / 36 / 31 depending
+    # on whether the RSA key and the OEM lock commands are detected, so two
+    # perfectly ordinary Path B binaries now fall under 40 and get told to
+    # investigate manually. The failure is expensive in one direction only: a
+    # Path B device pushed off Path B may attempt Path A, which means a
+    # destructive RPMB erase it never needed.
+    #
+    # Dropping the threshold entirely is not the fix either. The preloader that
+    # motivated removing the size constants scores 23, which decomposes uniquely
+    # as RSA-absent 5 + seccfg 18 + functions 0, so it matches a seccfg pattern.
+    # An unguarded "no magic and seccfg" would hand it COMPATIBLE_SECCFG_ONLY.
+    #
+    # So require seccfg plus one corroborating LK signal: the Xiaomi RSA key, or
+    # at least one of the key functions. That admits all three real Path B shapes
+    # (44, 36, 31) and still rejects the preloader, whose only evidence is the
+    # seccfg string. A binary with nothing but that string is genuinely
+    # indistinguishable from a preloader here and belongs in MAYBE.
+    elif not magic["found"] and seccfg["version"] and (rsa["modulus_found"] or funcs_found > 0):
         compatibility = "COMPATIBLE_SECCFG_ONLY"
         method = "seccfg unlock only (no RPMB lock)"
-        message = "RPMB magic not found. seccfg alone should work (MIUI13 or older)."
+        message = (
+            "RPMB magic not found: this LK does not implement the RPMB lock layer, so it "
+            "falls back to seccfg unconditionally. Run 'mtk.py da seccfg unlock', no RPMB "
+            "write is needed and the destructive erase step does not apply. "
+            f"Scored {score}/{W_TOTAL}, which is low by construction: the highest a Path B binary "
+            f"can reach is {PATH_B_CEILING}/{W_TOTAL}, because the rest of the scale measures the "
+            "magic this device does not have. The score is not a confidence level here: the "
+            "absent magic is the finding. "
+            "Scan both slots: lk_a and lk_b can carry different LK builds after an OTA."
+        )
     elif score >= 30:
         compatibility = "MAYBE"
         method = "Further analysis needed"
