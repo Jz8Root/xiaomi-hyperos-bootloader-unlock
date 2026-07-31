@@ -19,6 +19,7 @@
 | Redmi Note 11S (miel, MT6781) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.9.0.TKEEUXM | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-06-15 | kwhj4ff67r-crypto |
 | Redmi Note 13 5G (gold) | MT6833 Dimensity 6080 | Samsung | HyperOS 3.0.9.0.VNQCNXM (Android 15) `gold-c2e4398a1-20260513092248-20260514074541` | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 65504** + seccfg) | UNLOCKED | 2026-06-15 | KTS618 |
 | Redmi 12 (fire) | MT6769Z Helio G85 | Samsung | HyperOS 2.0.207 (Android 14) | `COMPATIBLE_FULL` (100/100, **slot B** — lk_a was SECCFG_ONLY) | A (RPMB erase sector 57344 + seccfg, active slot B) | UNLOCKED | 2026-06-16 | piotrurban |
+| Redmi Note 12S (sea) | MT6781 Helio G96 | (not reported) | HyperOS 2.0.210.0 VHZMIXM | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-07-30 | katavnnn |
 
 > **Note on miel:** `fastboot getvar version-bootloader` returns `fleur-90fe266d7-...` — Xiaomi ships the
 > fleur LK binary on miel unchanged. The same recipe works without modification. RPMB dump shows magic at
@@ -56,17 +57,56 @@ These devices have documented mtkclient issues with the exact same problem: "sec
 
 Issues #81 and #738 have been open since **2021**.
 
+## Tier 3b — BROM ACCESSIBLE, ERASE DOES NOT PERSIST (under investigation)
+
+Kamakiri works, BROM is reachable, the RPMB reads and writes fine, and `scan_lk.py` returns
+`COMPATIBLE_FULL`. What fails is that the erased magic is back after a power cycle. Four
+independent reports, one SoC.
+
+| Device | SoC | Storage | Reporter | Where |
+|-|-|-|-|-|
+| Redmi Note 12 Pro+ 5G (rubypro) | MT6877 | SK Hynix `H9QT1G6DN6X132` | LucaCraft89 | [#13][i13], bkerler/mtkclient#305 |
+| Redmi Note 11 Pro (pissarrro) | MT6877 | (not reported) | burg1ar | [#11][i11] |
+| Redmi Note 11 Pro+ (pissarropro) | MT6877 / D920 | (not reported) | dexus19 | bkerler/mtkclient#305 |
+| Redmi Note 12 Pro+ (IN variant) | MT6877 | (not reported) | RWBMAL | [#8][i8] |
+
+What has been measured so far, on rubypro:
+
+- the controller accepts the write, `resp=0` with the [mtkclient#307](https://github.com/bkerler/mtkclient/pull/307) reporting fix applied
+- writing `0xAA` across the whole 256-byte sector, then reading cold, shows 248 bytes persisted
+  and only the 8 magic bytes reverted to `Jz8PNRUF`
+- a same-session re-read shows the magic gone, which is a false positive, see the README
+
+Two candidate explanations are still open: a boot stage restoring the field, or the field being
+regenerated below the write path. If you own one of these devices, a dump before and after a
+genuine cold cycle is the most useful thing you can contribute.
+
 ## Tier 4 — NOT COMPATIBLE (BROM V6 — Kamakiri patched in hardware)
 
 | SoC | Example Devices |
 |-----|-----------------|
-| MT6877 / Dimensity 920 | Redmi Note 11 Pro (pissarro) |
-| MT6893 / Dimensity 1080 | Redmi Note 12 Pro |
-| MT6789 / Helio G99 | POCO M5, Redmi Note 12S |
+| MT6789 / Helio G99 | POCO M5 |
 | MT6855 / Dimensity 8100 | POCO F5 |
+| MT6893 / Dimensity 1200 | Redmi K40 Gaming |
 | MT6895 / Dimensity 8200 | Redmi Note 12 Turbo Pro |
 | MT6983 / Dimensity 9000+ | Xiaomi 13, 13T |
 | MT6989 / Dimensity 9300 | Xiaomi 14T Pro |
+
+> **⚠️ Do not judge Kamakiri support by comparing SoC numbers.** MediaTek part numbers are not
+> chronological, so "MT6789 or newer" cannot be read as "greater than 6789". The MT6877 is a 2021
+> part, older than the 2022 MT6789, and Kamakiri runs on it. Release order for the parts that
+> matter here:
+>
+> | Year | SoC | Kamakiri |
+> |-|-|-|
+> | 2020 | MT6833 | works |
+> | 2021 | MT6781 | works |
+> | 2021 | MT6877 | works |
+> | 2022 | MT6789 | patched |
+> | 2022 | MT6855 | patched |
+>
+> MT6877 was previously listed in Tier 4 on that faulty reading. It is not BROM V6, and the
+> Redmi Note 12S (sea) was listed there too while actually being an MT6781, now Tier 1.
 
 **All Snapdragon devices** are out of scope (completely different bootloader architecture).
 
@@ -94,3 +134,7 @@ prior expectation:
 - LK build string and md5 (look in the LK binary with `strings lk_a.bin | grep -E '<codename>-'`)
 - `scan_lk.py --json` output
 - `fastboot oem lks` output after the procedure
+
+[i8]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/8
+[i11]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/11
+[i13]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/13
