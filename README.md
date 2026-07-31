@@ -100,7 +100,8 @@ preloader → LK, and the keys then trigger fastboot or recovery instead.
 **The procedure that works reliably:**
 
 1. **Phone fully off.** Not transitioning. Not in fastboot. Not displaying a logo. If unsure,
-   hold Power for 15 s to force-off, then wait 5 s.
+   hold Power for 15 s to force-off, then wait 5 s. On some units a wedged phone **reboots**
+   instead of powering off when you do this, see [the warning below](#do-not-let-the-phone-boot-between-the-rpmb-erase-and-seccfg-unlock).
 2. **USB unplugged.**
 3. Press and hold **Vol+ AND Vol−** (both, simultaneously). On some devices Vol+ alone or
    Vol− alone works; try both keys first.
@@ -112,19 +113,54 @@ preloader → LK, and the keys then trigger fastboot or recovery instead.
 "FASTBOOT" text, the unlocked-warning screen, a vibration — the timing was wrong. Unplug,
 force-off, retry.
 
+**If this happens after an RPMB erase**, LK has already run and may have restored the magic.
+Re-dump and check before continuing, and use the battery-disconnect method for the retry.
+
 > **mtkclient should already be running before you plug in.** Start `mtk.py r ...` /
 > `mtk.py da rpmb r ...` / `mtk.py da seccfg unlock` first — it will print
 > `Waiting for PreLoader VCOM, please reconnect mobile/iot device to brom mode` and sit there
 > until USB enumeration happens. That way mtkclient grabs the device in the first ~100 ms after
 > enumeration, before any kernel driver can race for the interface.
 
-**Between every `da` command, the phone needs a fresh BROM entry.** Unplug, force-off if needed,
-redo the key combo, replug.
+**Between every `da` command, the phone needs a fresh BROM entry.** Unplug, redo the key combo,
+replug.
+
+#### Do not let the phone boot between the RPMB erase and seccfg unlock
+
+⚠️ On some units, unplugging after a `da` command leaves the phone wedged between BROM and
+Preloader, and **holding Power reboots it instead of powering it off**. If that happens between
+your erase and your unlock, the magic can be back by the time you run the unlock, and nothing
+tells you.
+
+What is established is the outcome, not yet the mechanism. katavnnn hit this on sea/MT6781 and
+only got a successful unlock once he prevented any boot from occurring between the two commands.
+Something in the boot chain restores the magic when it finds it missing, but whether that is LK or
+the preloader is still open, see the discussion in #13.
+
+That is why the recovery advice below no longer says "hold Power to force-off". On a unit that
+reboots instead of powering off, that instruction is what destroys your work.
+
+**If the phone wedges, cut power at the battery:**
+
+1. Open the back cover and **disconnect the battery connector from the board**
+2. Reconnect it
+3. Hold **Vol+ and Vol-**, then insert the cable
+
+The phone goes straight back to BROM, clean, and the RPMB erase stays intact. This also clears
+SRAM, so no previously loaded preloader can be reused on the next entry.
+
+Contributed by katavnnn (#12), who hit this on sea/MT6781 and worked out the fix.
+
+If you would rather not open the phone, the safe sequence is to complete the erase and the
+`seccfg unlock` **without ever letting a boot logo appear**. Any logo, vibration or "FASTBOOT"
+text between the two commands means LK ran, and you should re-dump to check whether the magic
+came back before continuing.
 
 Stuck phone in some intermediate MTK state (e.g. `0e8d:20ff` not recognised by mtkclient, or
 fastboot wedged after a killed mtkclient run)? Two recovery paths:
 
-- Hold Power 15 s to force-off, redo BROM from step 1.
+- Battery disconnect as described above, then redo BROM from step 1. Preferred, since it cannot
+  boot the device by accident.
 - For a wedged USB endpoint without unplugging, reset the device node via ioctl:
   ```bash
   sudo python3 -c "import os, fcntl; fcntl.ioctl(os.open('/dev/bus/usb/BBB/DDD', os.O_WRONLY), 21780, 0)"
@@ -196,12 +232,45 @@ python mtk.py da seccfg unlock
 ```
 
 (Step 0 already produced the mandatory `rpmb_backup.bin`.) **Between every `da` command,
-the phone needs a fresh BROM entry** — unplug, redo the key combo, replug.
+the phone needs a fresh BROM entry**: unplug, redo the key combo, replug.
+
+**A1 and A2 are the critical pair.** If the phone boots between them, the magic can come back, and
+A2 then unlocks a seccfg that the restored magic will override on the next boot. Never force-off with the Power
+button in this window, and if the phone wedges, cut power at the battery instead. See
+[the warning above](#do-not-let-the-phone-boot-between-the-rpmb-erase-and-seccfg-unlock).
 
 If your device needs a specific preloader, add `--preloader preloader_CODENAME.bin` to each command.
 
 **Note on the erase:** only 4 sectors are touched — just the magic region. Absent magic alone forces
 the DEFAULT→seccfg fallback path.
+
+#### ⚠️ If you re-dump to check the erase, do it in a separate cold session
+
+A `da rpmb r` issued without a full power cycle in between can reattach to the still-live DA
+session and return a **volatile view** in which the magic already looks erased, whether or not
+anything reached the flash. That is a false positive, and it is convincing enough to make you
+believe the erase worked when it did not.
+
+```bash
+# WRONG: chained read, may show a magic that is not actually gone
+python mtk.py da rpmb e --sector <YOUR_SECTOR> --sectors 4
+python mtk.py da rpmb r rpmb_check.bin
+
+# RIGHT: power cycle, fresh BROM entry, then read
+python mtk.py da rpmb e --sector <YOUR_SECTOR> --sectors 4
+#   ... power the phone down completely, re-enter BROM ...
+python mtk.py da rpmb r rpmb_check.bin
+grep -boa "Jz8PNRUF" rpmb_check.bin
+```
+
+Discovered by LucaCraft89 (#13) while investigating an erase that reported success and did not
+persist. Three dumps were needed to see it: cold baseline, same-session read, and cold read after
+a power cycle. Only the third one tells you the truth.
+
+**Reading the signature field is a better check than the magic.** If the record at `0xE20000`
+contains `wrong unlock data` instead of `milock state`, the boot chain has flagged the record as
+tampered, which means it ran and inspected the RPMB. That distinguishes "erased then restored"
+from "never erased", which magic presence alone cannot. Observed by LucaCraft89 (#13).
 
 **Non-Samsung UFS:** sector 57344 is the *Samsung* layout. Hynix and other UFS vendors may have
 the magic at different offsets — see [RPMB Sector Reference](#rpmb-sector-reference) below. If
@@ -232,12 +301,27 @@ After mtkclient finishes, fully power-off the phone, then hold Vol- + plug USB t
 fastboot. Run:
 
 ```bash
-fastboot oem lks                 # Expected: (bootloader) lks = 0
-fastboot getvar unlocked         # Expected: unlocked: yes
+fastboot getvar unlocked         # AUTHORITATIVE. Expected: unlocked: yes
 fastboot getvar secure           # Expected: secure: no
+fastboot oem lks                 # Optional. Expected: (bootloader) lks = 0
 ```
 
-If `lks = 0`, the unlock is in seccfg and persistent.
+**`fastboot getvar unlocked` is the source of truth.** If it returns `yes`, the unlock is in
+seccfg and persistent. Stop there, you are done.
+
+`oem lks` is a hidden OEM command that not every LK build implements. On builds that don't, it
+returns an error while the device is perfectly unlocked:
+
+```
+fastboot oem lks
+FAILED (remote: Unable to do OEM command Status(-7, EX_UNSUPPORTED_OPERATION)
+
+fastboot getvar unlocked
+unlocked: yes
+```
+
+Reported on sea/MT6781 by katavnnn (#12). Treat `oem lks` as a bonus signal, never as the
+verification step. An error there means the command is missing, not that the unlock failed.
 
 ### Step 3 — Clear the dm-verity state (REQUIRED on first boot after unlock)
 
