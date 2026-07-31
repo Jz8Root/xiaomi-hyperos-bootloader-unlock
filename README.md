@@ -113,8 +113,9 @@ preloader → LK, and the keys then trigger fastboot or recovery instead.
 "FASTBOOT" text, the unlocked-warning screen, a vibration — the timing was wrong. Unplug,
 force-off, retry.
 
-**If this happens after an RPMB erase**, LK has already run and may have restored the magic.
-Re-dump and check before continuing, and use the battery-disconnect method for the retry.
+**If this happens after an RPMB erase**, the boot chain has already run and may have restored the
+magic. Re-dump and check before continuing, and use `python mtk.py reset` to power the phone down
+over USB for the retry rather than the Power button.
 
 > **mtkclient should already be running before you plug in.** Start `mtk.py r ...` /
 > `mtk.py da rpmb r ...` / `mtk.py da seccfg unlock` first — it will print
@@ -140,32 +141,62 @@ the preloader is still open, see the discussion in #13.
 That is why the recovery advice below no longer says "hold Power to force-off". On a unit that
 reboots instead of powering off, that instruction is what destroys your work.
 
-**If the phone wedges, cut power at the battery:**
+**Why the phone ends up wedged:** after `da rpmb e` completes, mtkclient calls neither `close()`
+nor `shutdown()`. The command returns and leaves the device with the DA still running and still
+powered. That intermediate state is what makes the Power button behave strangely.
+
+##### Recommended: shut the phone down over USB, no disassembly needed
+
+`mtk.py reset` sends a DA shutdown with `bootmode=0`, which is a real power-off rather than a
+reboot. Since a second mtkclient invocation reattaches to a still-live DA session, you can issue
+it straight after the erase without unplugging:
+
+```bash
+python mtk.py da rpmb e --sector <YOUR_SECTOR> --sectors 4
+python mtk.py reset
+# prints: Reset command was sent. Disconnect usb cable to power off.
+# now unplug. The phone powers off. LK never runs.
+# re-enter BROM normally, then:
+python mtk.py da seccfg unlock
+```
+
+This is derived from mtkclient's own source (`shutdown(bootmode=0)`, with `leaveusb=0`) and from
+the observation in #13 that a chained invocation reattaches to the live DA. **It has not yet been
+confirmed on hardware.** If you try it, please report the result in an issue, it would let this
+become the standard procedure.
+
+##### Fallback: cut power at the battery
+
+If `mtk.py reset` does not work on your unit and the phone is wedged:
 
 1. Open the back cover and **disconnect the battery connector from the board**
 2. Reconnect it
 3. Hold **Vol+ and Vol-**, then insert the cable
 
 The phone goes straight back to BROM, clean, and the RPMB erase stays intact. This also clears
-SRAM, so no previously loaded preloader can be reused on the next entry.
+SRAM, so no previously loaded preloader can be reused on the next entry. Contributed by katavnnn
+(#12), who hit this on sea/MT6781 and worked out the fix on hardware.
 
-Contributed by katavnnn (#12), who hit this on sea/MT6781 and worked out the fix.
+This one is proven but invasive, which is why it is the fallback rather than the first move. Only
+open the phone if the USB shutdown fails.
 
-If you would rather not open the phone, the safe sequence is to complete the erase and the
-`seccfg unlock` **without ever letting a boot logo appear**. Any logo, vibration or "FASTBOOT"
-text between the two commands means LK ran, and you should re-dump to check whether the magic
-came back before continuing.
+##### If you would rather not do either
+
+Complete the erase and the `seccfg unlock` **without ever letting a boot logo appear**. Any logo,
+vibration or "FASTBOOT" text between the two commands means the boot chain ran, and you should
+re-dump to check whether the magic came back before continuing.
 
 Stuck phone in some intermediate MTK state (e.g. `0e8d:20ff` not recognised by mtkclient, or
-fastboot wedged after a killed mtkclient run)? Two recovery paths:
+fastboot wedged after a killed mtkclient run)? Three recovery paths, least invasive first:
 
-- Battery disconnect as described above, then redo BROM from step 1. Preferred, since it cannot
-  boot the device by accident.
+- `python mtk.py reset`, then unplug. See above.
 - For a wedged USB endpoint without unplugging, reset the device node via ioctl:
   ```bash
   sudo python3 -c "import os, fcntl; fcntl.ioctl(os.open('/dev/bus/usb/BBB/DDD', os.O_WRONLY), 21780, 0)"
   ```
   (replace `BBB/DDD` with the bus/device numbers from `lsusb`).
+- Battery disconnect as described above, then redo BROM from step 1. Last resort, but it cannot
+  boot the device by accident.
   
 ### Step 0 — Mandatory backups
 
@@ -235,8 +266,8 @@ python mtk.py da seccfg unlock
 the phone needs a fresh BROM entry**: unplug, redo the key combo, replug.
 
 **A1 and A2 are the critical pair.** If the phone boots between them, the magic can come back, and
-A2 then unlocks a seccfg that the restored magic will override on the next boot. Never force-off with the Power
-button in this window, and if the phone wedges, cut power at the battery instead. See
+A2 then unlocks a seccfg that the restored magic will override on the next boot. Never force-off
+with the Power button in this window. Use `python mtk.py reset` to power down over USB instead. See
 [the warning above](#do-not-let-the-phone-boot-between-the-rpmb-erase-and-seccfg-unlock).
 
 If your device needs a specific preloader, add `--preloader preloader_CODENAME.bin` to each command.
