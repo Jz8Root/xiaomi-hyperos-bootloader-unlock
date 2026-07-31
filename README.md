@@ -136,7 +136,7 @@ tells you.
 What is established is the outcome, not yet the mechanism. katavnnn hit this on sea/MT6781 and
 only got a successful unlock once he prevented any boot from occurring between the two commands.
 Something in the boot chain restores the magic when it finds it missing, but whether that is LK or
-the preloader is still open, see the discussion in #13.
+the preloader is still open, see the discussion in [#13][i13].
 
 That is why the recovery advice below no longer says "hold Power to force-off". On a unit that
 reboots instead of powering off, that instruction is what destroys your work.
@@ -161,7 +161,7 @@ python mtk.py da seccfg unlock
 ```
 
 This is derived from mtkclient's own source (`shutdown(bootmode=0)`, with `leaveusb=0`) and from
-the observation in #13 that a chained invocation reattaches to the live DA. **It has not yet been
+the observation in [#13][i13] that a chained invocation reattaches to the live DA. **It has not yet been
 confirmed on hardware.** If you try it, please report the result in an issue, it would let this
 become the standard procedure.
 
@@ -175,7 +175,7 @@ If `mtk.py reset` does not work on your unit and the phone is wedged:
 
 The phone goes straight back to BROM, clean, and the RPMB erase stays intact. This also clears
 SRAM, so no previously loaded preloader can be reused on the next entry. Contributed by katavnnn
-(#12), who hit this on sea/MT6781 and worked out the fix on hardware.
+([#12][i12]), who hit this on sea/MT6781 and worked out the fix on hardware.
 
 This one is proven but invasive, which is why it is the fallback rather than the first move. Only
 open the phone if the USB shutdown fails.
@@ -294,14 +294,14 @@ python mtk.py da rpmb r rpmb_check.bin
 grep -boa "Jz8PNRUF" rpmb_check.bin
 ```
 
-Discovered by LucaCraft89 (#13) while investigating an erase that reported success and did not
+Discovered by LucaCraft89 ([#13][i13]) while investigating an erase that reported success and did not
 persist. Three dumps were needed to see it: cold baseline, same-session read, and cold read after
 a power cycle. Only the third one tells you the truth.
 
 **Reading the signature field is a better check than the magic.** If the record at `0xE20000`
 contains `wrong unlock data` instead of `milock state`, the boot chain has flagged the record as
 tampered, which means it ran and inspected the RPMB. That distinguishes "erased then restored"
-from "never erased", which magic presence alone cannot. Observed by LucaCraft89 (#13).
+from "never erased", which magic presence alone cannot. Observed by LucaCraft89 ([#13][i13]).
 
 **Non-Samsung UFS:** sector 57344 is the *Samsung* layout. Hynix and other UFS vendors may have
 the magic at different offsets — see [RPMB Sector Reference](#rpmb-sector-reference) below. If
@@ -351,7 +351,7 @@ fastboot getvar unlocked
 unlocked: yes
 ```
 
-Reported on sea/MT6781 by katavnnn (#12). Treat `oem lks` as a bonus signal, never as the
+Reported on sea/MT6781 by katavnnn ([#12][i12]). Treat `oem lks` as a bonus signal, never as the
 verification step. An error there means the command is missing, not that the unlock failed.
 
 ### Step 3 — Clear the dm-verity state (REQUIRED on first boot after unlock)
@@ -472,3 +472,6 @@ A: We only need to remove the magic string. The lock state length and signature 
 ---
 
 Researched & tested by: **Jz8root**
+
+[i12]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/12
+[i13]: https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/13
