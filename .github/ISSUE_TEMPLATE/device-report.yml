@@ -68,9 +68,14 @@ body:
   - type: input
     id: rpmb_sector
     attributes:
-      label: RPMB sector used
-      description: "Which sector did you erase? (default: 57344)"
-      placeholder: "57344"
+      label: RPMB sector erased (Path A only)
+      description: >-
+        Which sector did you erase, and how did you find it? There is no default value,
+        the sector is SoC-specific. Get yours with:
+        `python3 mtk.py da rpmb r rpmb_dump.bin` then `grep -boa "Jz8PNRUF" rpmb_dump.bin`
+        (byte offset / 256 = sector). Known values: MT6781/MT6769Z/MT6877 = 57344,
+        MT6833 = 65504. Leave as "n/a" if you took Path B (seccfg only).
+      placeholder: 'e.g. 57344, grep returned 14680064 and 31457280 (16 MiB alias), erased the lowest'
     validations:
       required: true
   - type: dropdown
