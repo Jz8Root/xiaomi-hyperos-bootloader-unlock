@@ -100,8 +100,9 @@ preloader → LK, and the keys then trigger fastboot or recovery instead.
 **The procedure that works reliably:**
 
 1. **Phone fully off.** Not transitioning. Not in fastboot. Not displaying a logo. If unsure,
-   hold Power for 15 s to force-off, then wait 5 s. On some units a wedged phone **reboots**
-   instead of powering off when you do this, see [the warning below](#do-not-let-the-phone-boot-between-the-rpmb-erase-and-seccfg-unlock).
+   hold Power for 15 s to force-off, then wait 5 s. This is fine **before** you start, but once
+   the RPMB is erased the Power button is off limits, see
+   [the rule below](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
 2. **USB unplugged.**
 3. Press and hold **Vol+ AND Vol−** (both, simultaneously). On some devices Vol+ alone or
    Vol− alone works; try both keys first.
@@ -113,9 +114,9 @@ preloader → LK, and the keys then trigger fastboot or recovery instead.
 "FASTBOOT" text, the unlocked-warning screen, a vibration — the timing was wrong. Unplug,
 force-off, retry.
 
-**If this happens after an RPMB erase**, the boot chain has already run and may have restored the
-magic. Re-dump and check before continuing, and use `python mtk.py reset` to power the phone down
-over USB for the retry rather than the Power button.
+**If this happens after an RPMB erase**, the preloader has already run and has restored the magic.
+Re-dump to confirm, redo the erase, and retry the BROM entry using only the volume keys. See
+[the rule below](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
 
 > **mtkclient should already be running before you plug in.** Start `mtk.py r ...` /
 > `mtk.py da rpmb r ...` / `mtk.py da seccfg unlock` first — it will print
@@ -126,77 +127,62 @@ over USB for the retry rather than the Power button.
 **Between every `da` command, the phone needs a fresh BROM entry.** Unplug, redo the key combo,
 replug.
 
-#### Do not let the phone boot between the RPMB erase and seccfg unlock
+#### Never use the Power button between the RPMB erase and seccfg unlock
 
-⚠️ On some units, unplugging after a `da` command leaves the phone wedged between BROM and
-Preloader, and **holding Power reboots it instead of powering it off**. If that happens between
-your erase and your unlock, the magic can be back by the time you run the unlock, and nothing
-tells you.
+🚨 This is the single most important rule in this document, and it is the reason most reported
+failures fail.
 
-What is established is the outcome, not yet the mechanism. katavnnn hit this on sea/MT6781 and
-only got a successful unlock once he prevented any boot from occurring between the two commands.
-Something in the boot chain restores the magic when it finds it missing, but whether that is LK or
-the preloader is still open, see the discussion in [#13][i13].
+**The preloader rewrites the RPMB magic on every start-up.** Not LK, not HyperOS. The preloader.
+Reaching the Mi logo is enough. So anything that starts the phone between your erase and your
+unlock silently undoes the erase, and nothing tells you.
 
-That is why the recovery advice below no longer says "hold Power to force-off". On a unit that
-reboots instead of powering off, that instruction is what destroys your work.
+Re-entering BROM does **not** start the phone, so it is safe:
 
-**Why the phone ends up wedged:** after `da rpmb e` completes, mtkclient calls neither `close()`
-nor `shutdown()`. The command returns and leaves the device with the DA still running and still
-powered. That intermediate state is what makes the Power button behave strangely.
+| Action | Safe? | Why |
+|-|-|-|
+| unplug, hold Vol+ and Vol-, replug | ✅ | BROM only, the preloader never runs |
+| Power button to shut down or restart | ❌ | preloader runs, magic is rewritten |
+| letting the Mi logo appear at all | ❌ | preloader has already run |
+| `fastboot reboot` | ❌ | same |
 
-##### Recommended: shut the phone down over USB, no disassembly needed
-
-`mtk.py reset` sends a DA shutdown with `bootmode=0`, which is a real power-off rather than a
-reboot. Since a second mtkclient invocation reattaches to a still-live DA session, you can issue
-it straight after the erase without unplugging:
+So the erase and the unlock are two ordinary BROM sessions, with a normal unplug and key-combo
+in between. Nothing exotic is required:
 
 ```bash
 python mtk.py da rpmb e --sector <YOUR_SECTOR> --sectors 4
-python mtk.py reset
-# prints: Reset command was sent. Disconnect usb cable to power off.
-# now unplug. The phone powers off. LK never runs.
-# re-enter BROM normally, then:
+#   unplug, hold Vol+ and Vol-, replug. Do not touch the Power button.
 python mtk.py da seccfg unlock
 ```
 
-This is derived from mtkclient's own source (`shutdown(bootmode=0)`, with `leaveusb=0`) and from
-the observation in [#13][i13] that a chained invocation reattaches to the live DA. **It has not yet been
-confirmed on hardware.** If you try it, please report the result in an issue, it would let this
-become the standard procedure.
+**How this was established.** LucaCraft89 ([#13][i13]) ran three dumps on rubypro/MT6877. After the
+erase and a full cold BROM re-entry with Kamakiri re-run and the DA re-uploaded, the magic was
+**gone**. He then powered the phone off with the buttons, re-read, and the magic was **back**. He
+also confirmed it returns when the phone only reaches the Mi logo, which is what pins the
+responsibility on the preloader rather than on LK.
 
-##### Fallback: cut power at the battery
+**Why the phone sometimes ends up in a strange state:** after `da rpmb e` completes, mtkclient
+calls neither `close()` nor `shutdown()`. The command returns and leaves the device with the DA
+still running and still powered. On some units the Power button then reboots instead of shutting
+down, which is how katavnnn ([#12][i12]) first ran into this on sea/MT6781.
 
-If `mtk.py reset` does not work on your unit and the phone is wedged:
+##### If the phone gets stuck and you need to reset it
 
-1. Open the back cover and **disconnect the battery connector from the board**
-2. Reconnect it
-3. Hold **Vol+ and Vol-**, then insert the cable
+Stuck in an intermediate MTK state (e.g. `0e8d:20ff` not recognised by mtkclient, or fastboot
+wedged after a killed mtkclient run)? Three options, least invasive first. **None of them are
+needed in the normal flow** where you simply unplug and redo the key combo.
 
-The phone goes straight back to BROM, clean, and the RPMB erase stays intact. This also clears
-SRAM, so no previously loaded preloader can be reused on the next entry. Contributed by katavnnn
-([#12][i12]), who hit this on sea/MT6781 and worked out the fix on hardware.
-
-This one is proven but invasive, which is why it is the fallback rather than the first move. Only
-open the phone if the USB shutdown fails.
-
-##### If you would rather not do either
-
-Complete the erase and the `seccfg unlock` **without ever letting a boot logo appear**. Any logo,
-vibration or "FASTBOOT" text between the two commands means the boot chain ran, and you should
-re-dump to check whether the magic came back before continuing.
-
-Stuck phone in some intermediate MTK state (e.g. `0e8d:20ff` not recognised by mtkclient, or
-fastboot wedged after a killed mtkclient run)? Three recovery paths, least invasive first:
-
-- `python mtk.py reset`, then unplug. See above.
-- For a wedged USB endpoint without unplugging, reset the device node via ioctl:
+- **Reset the USB endpoint without unplugging**, which does not touch the phone's power state:
   ```bash
   sudo python3 -c "import os, fcntl; fcntl.ioctl(os.open('/dev/bus/usb/BBB/DDD', os.O_WRONLY), 21780, 0)"
   ```
   (replace `BBB/DDD` with the bus/device numbers from `lsusb`).
-- Battery disconnect as described above, then redo BROM from step 1. Last resort, but it cannot
-  boot the device by accident.
+- **`python mtk.py reset`** issues a DA shutdown with `bootmode=0`. It works on some units and
+  fails on others with `DeviceClass - [Errno 2] Entity not found`, and note that the
+  `Reset command was sent` message is printed unconditionally by mtkclient whether or not the
+  command actually went through, so it is not a confirmation.
+- **Disconnect the battery connector** from the board, reconnect, then hold Vol+ and Vol- before
+  inserting the cable. Proven on hardware by katavnnn ([#12][i12]) and it cannot start the phone
+  by accident, but it means opening the back cover. Last resort.
   
 ### Step 0 — Mandatory backups
 
@@ -266,18 +252,18 @@ python mtk.py da seccfg unlock
 the phone needs a fresh BROM entry**: unplug, redo the key combo, replug.
 
 **A1 and A2 are the critical pair.** If the phone boots between them, the magic can come back, and
-A2 then unlocks a seccfg that the restored magic will override on the next boot. Never force-off
-with the Power button in this window. Use `python mtk.py reset` to power down over USB instead. See
-[the warning above](#do-not-let-the-phone-boot-between-the-rpmb-erase-and-seccfg-unlock).
+A2 then unlocks a seccfg that the restored magic will override on the next boot. **Never touch the
+Power button in this window.** Unplug and redo the key combo, that is all that is needed. See
+[the rule above](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
 
 If your device needs a specific preloader, add `--preloader preloader_CODENAME.bin` to each command.
 
 **Note on the erase:** only 4 sectors are touched — just the magic region. Absent magic alone forces
 the DEFAULT→seccfg fallback path.
 
-#### ⚠️ If you re-dump to check the erase, do it in a separate cold session
+#### If you re-dump to check the erase, do it in a separate cold session
 
-A `da rpmb r` issued without a full power cycle in between can reattach to the still-live DA
+⚠️ A `da rpmb r` issued without a full power cycle in between can reattach to the still-live DA
 session and return a **volatile view** in which the magic already looks erased, whether or not
 anything reached the flash. That is a false positive, and it is convincing enough to make you
 believe the erase worked when it did not.
