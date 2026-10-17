@@ -53,8 +53,8 @@ RPMB_MAGIC = b"Jz8PNRUF"
 # too. It also says nothing about the storage vendor: rubypro carries SK Hynix
 # H9QT1G6DN6X132 and matches the same constant as the Samsung parts.
 #
-# The sector actually depends on the SoC, and the only reliable way to obtain it
-# is to grep the RPMB dump. See RPMB_SECTOR_KNOWN below.
+# The sector depends on the LK driver family, and the only reliable way to
+# obtain it is to grep the RPMB dump. See RPMB_SECTOR_KNOWN below.
 RPMB_SIZE_4M  = 0x400000     # was misleadingly named RPMB_TYPE_SAMSUNG
 RPMB_SIZE_16M = 0x1000000    # was misleadingly named RPMB_TYPE_ALT
 
@@ -72,14 +72,17 @@ RPMB_OFFSETS_SAMSUNG = {
     "signature_data":  0x41E0,     # LK-internal
 }
 
-# Known SoC-to-sector mappings, all confirmed on hardware.
-# The sector depends on the SoC, not on the storage vendor. Always confirm with
-# grep, this table is a prior expectation: grep -boa "Jz8PNRUF" rpmb_dump.bin
+# Known sector mappings, all confirmed on hardware.
+# The sector depends on the LK driver family, not on the SoC alone and not on
+# the storage vendor. Two MT6833 devices with different LK families (gold vs
+# light) use different sectors. Always confirm with grep, this table is a prior
+# expectation: grep -boa "Jz8PNRUF" rpmb_dump.bin
 RPMB_SECTOR_KNOWN = {
-    "MT6781": 57344,   # Helio G96 — confirmed fleur, miel, sea
-    "MT6769Z": 57344,  # Helio G85 — confirmed fire
-    "MT6833": 65504,   # Dimensity 6080 — confirmed gold (HyperOS 3.0, discovered by KTS618 2026-06-15)
-    "MT6877": 57344,   # Dimensity 920/1080 — confirmed rubypro (SK Hynix UFS, same sector)
+    "MT6781": 57344,        # Helio G96 — confirmed fleur, miel, sea
+    "MT6769Z": 57344,       # Helio G85 — confirmed fire
+    "MT6833/gold": 65504,   # Dimensity 6080 — confirmed gold (KTS618 2026-06-15)
+    "MT6833/light": 57344,  # Dimensity 700 — confirmed thunder (ogmkp 2026-10-16)
+    "MT6877": 57344,        # Dimensity 920/1080 — confirmed rubypro
 }
 
 # RPMB offsets for alternative type (0x1000000)
@@ -588,10 +591,12 @@ def generate_verdict(result: dict) -> dict:
     if score >= 70 and magic["found"]:
         compatibility = "COMPATIBLE_FULL"
         method = "RPMB erase (grep your sector) + seccfg unlock"
+        sector_list = ", ".join(f"{k} = {v}" for k, v in RPMB_SECTOR_KNOWN.items())
         message = (
             "This device is compatible with the RPMB erase + seccfg unlock method. "
-            "The sector is SoC-specific and cannot be read from the LK alone: "
-            "MT6781/MT6769Z/MT6877 = 57344, MT6833 = 65504. Confirm yours with: "
+            "The sector depends on the LK driver family and cannot be read from the "
+            "LK alone. Known values: " + sector_list + ". "
+            "Confirm yours with: "
             "python3 mtk.py da rpmb r rpmb_dump.bin && grep -boa \"Jz8PNRUF\" rpmb_dump.bin "
             "(byte offset / 256 = sector). Hits exactly 16 MiB apart are aliases of the same "
             "location, erase the lowest one only. "
