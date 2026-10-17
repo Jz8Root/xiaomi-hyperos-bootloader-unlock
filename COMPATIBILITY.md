@@ -20,6 +20,7 @@
 | Redmi Note 13 5G (gold) | MT6833 Dimensity 6080 | Samsung | HyperOS 3.0.9.0.VNQCNXM (Android 15) `gold-c2e4398a1-20260513092248-20260514074541` | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 65504** + seccfg) | UNLOCKED | 2026-06-15 | KTS618 |
 | Redmi 12 (fire) | MT6769Z Helio G85 | Samsung | HyperOS 2.0.207 (Android 14) | `COMPATIBLE_FULL` (100/100, **slot B** — lk_a was SECCFG_ONLY) | A (RPMB erase sector 57344 + seccfg, active slot B) | UNLOCKED | 2026-06-16 | piotrurban |
 | Redmi Note 12S (sea) | MT6781 Helio G96 | (not reported) | HyperOS 2.0.210.0 VHZMIXM | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-07-30 | katavnnn |
+| POCO M4 5G (thunder, 22041219PG) | MT6833 Dimensity 700 | SanDisk SDINDDK4-64G | `light-072f5dbd2-20231011161345-20250722115219` (HyperOS OS1.0.8.0.ULSEUXM, EEA) | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 57344** + seccfg) | UNLOCKED | 2026-10-16 | ogmkp |
 
 > **Note on miel:** `fastboot getvar version-bootloader` returns `fleur-90fe266d7-...` — Xiaomi ships the
 > fleur LK binary on miel unchanged. The same recipe works without modification. RPMB dump shows magic at
@@ -29,10 +30,15 @@
 > **⚠️ RPMB sector is NOT universal — always locate the magic before erasing:**
 > The sector where `Jz8PNRUF` lives in the RPMB dump is SoC-dependent. Known values:
 > - MT6781 (Helio G96): sector **57344** (dump offset `0xE00000`)
-> - MT6833 (Dimensity 6080): sector **65504** (dump offset `0xFFE000`) ← discovered by KTS618
+> - MT6833 (Dimensity 6080, gold LK): sector **65504** (dump offset `0xFFE000`) -- discovered by KTS618
+> - MT6833 (Dimensity 700, light LK): sector **57344** (dump offset `0xE00000`) -- discovered by ogmkp
+>
+> **MT6833 has two known sectors depending on the LK driver family.** The gold and light LK
+> builds use different RPMB offset logic internally. Do not assume 65504 just because your
+> device is MT6833. Always grep the dump first.
 >
 > To find the correct sector on your device: dump RPMB with `python3 mtk.py da rpmb r rpmb_dump.bin`,
-> then run `grep -boa "Jz8PNRUF" rpmb_dump.bin` — the byte offset divided by 256 gives your sector number.
+> then run `grep -boa "Jz8PNRUF" rpmb_dump.bin` -- the byte offset divided by 256 gives your sector number.
 
 ## Tier 2 — CONFIRMED COMPATIBLE VIA LK ANALYSIS (unlock pending)
 
@@ -47,7 +53,7 @@ These devices have documented mtkclient issues with the exact same problem: "sec
 | Device | SoC | mtkclient Issue |
 |--------|-----|-----------------|
 | POCO M3 Pro / Redmi Note 10 5G (camellia) | MT6833 | #764 |
-| POCO M4 5G / Redmi 10 5G | MT6833 | #764 |
+| Redmi 10 5G | MT6833 | #764 |
 | Redmi Note 8 Pro / POCO X2 (begonia) | MT6785 | #1219 |
 | Redmi Note 9 Pro 5G / Mi 10T Lite | MT6873 | — |
 | Redmi Note 9 5G / Note 9T | MT6853 | — |
