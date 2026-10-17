@@ -78,11 +78,11 @@ RPMB_OFFSETS_SAMSUNG = {
 # light) use different sectors. Always confirm with grep, this table is a prior
 # expectation: grep -boa "Jz8PNRUF" rpmb_dump.bin
 RPMB_SECTOR_KNOWN = {
-    "MT6781": 57344,        # Helio G96 — confirmed fleur, miel, sea
-    "MT6769Z": 57344,       # Helio G85 — confirmed fire
-    "MT6833/gold": 65504,   # Dimensity 6080 — confirmed gold (KTS618 2026-06-15)
-    "MT6833/light": 57344,  # Dimensity 700 — confirmed thunder (ogmkp 2026-10-16)
-    "MT6877": 57344,        # Dimensity 920/1080 — confirmed rubypro
+    "MT6781": 57344,        # Helio G96 -- confirmed fleur, miel, sea
+    "MT6769Z": 57344,       # Helio G85 -- confirmed fire
+    "MT6833/gold": 65504,   # Dimensity 6080 -- confirmed gold (KTS618 2026-06-15)
+    "MT6833/light": 57344,  # Dimensity 700 -- confirmed thunder (ogmkp 2026-10-16)
+    "MT6877": 57344,        # Dimensity 920/1080 -- confirmed rubypro
 }
 
 # RPMB offsets for alternative type (0x1000000)

@@ -1,6 +1,29 @@
 # Changelog
 
-## 2026-06-16 — v2.0.0: 6 Devices, 4 SoCs, Full HyperOS Lifecycle
+## 2026-10-17 -- Eighth Hardware Unlock + MT6833 Sector Correction
+
+- POCO M4 5G (thunder, 22041219PG, MT6833/Dimensity 700, SanDisk UFS) confirmed unlocked by ogmkp -- eighth Tier 1 device, second MT6833 confirmation
+- Key finding: **MT6833 sector depends on the LK driver family, not the SoC alone.** The gold LK uses sector 65504, but the light LK uses sector 57344. ogmkp decompiled the LK driver and traced the divergence to an internal `uxth` truncation at offset `0x6AD96`. Two MT6833 devices with different LK families produce different sectors
+- scan_lk.py: `known_sectors` table now splits MT6833 into `MT6833/gold` (65504) and `MT6833/light` (57344). Verdict message generated dynamically from the table instead of hardcoded
+- COMPATIBILITY.md: thunder/light added to Tier 1, POCO M4 5G removed from Tier 3. MT6833 sector warning added
+- ogmkp also identified two mtkclient bugs: UFS literal-pool alignment in `XFlashExt.patch()` (the DA pointer is read 2 bytes off when an alignment NOP is present), and MEID not restored in `DAloader.reinit()`. PRs pending upstream
+
+## 2026-10-05 -- Redmi Note 13 5G Independent Confirmation
+
+- Redmi Note 13 5G (gold, MT6833) independently confirmed unlocked by Gkhupo (#17) -- second successful unlock on this SoC/LK combination, replicating KTS618's June result
+
+## 2026-07-31 -- MT6877 Reclassification + Preloader Discovery + scan_lk Fixes
+
+- **Discovery: the preloader rewrites the RPMB magic on every boot.** The Power button is forbidden between erase and unlock because even reaching the Mi logo triggers the preloader, which restores the magic. Proven by LucaCraft89's three-dump sequence on rubypro (SK Hynix UFS, MT6877): magic absent after cold BROM re-entry, present again after any power-on
+- MT6877 reclassified from Tier 4 (BROM V6) to Tier 3b. MT6877 is a 2021 part, not a 2022 part -- Kamakiri runs on it. Three other Tier 4 entries corrected (MT6893/Dimensity 1080 mislabel, Redmi Note 12S wrong SoC)
+- USB 3.0 silent write corruption documented: RPMB writes acknowledged by mtkclient but never committed to flash on certain USB 3.0 host controllers. Warnings restructured, 3 FAQ entries added
+- RPMB addressing corrected: sector depends on the SoC (now further refined to LK family), not the storage vendor. The documented 57344 sector was the modular wrap of the LK-internal offset, not a mirroring artifact
+- Power-down procedure changed from "unplug, force-off" (which reboots and triggers the preloader) to `mtk.py reset` DA shutdown (untested on hardware, flagged as such)
+- scan_lk.py: RPMB size-constant check removed from scoring (matched preloaders). Points redistributed: magic 40->47, RSA 15->18, seccfg 15->18, functions 15->17. Path B verdict now gated on evidence (RSA key or functions), not raw score, to prevent the ceiling regression from misclassifying working devices
+- Issue template: stopped suggesting 57344 as the default RPMB sector
+- PR bkerler/mtkclient#307 opened and merged (02 August): fix silent discard of RPMB error codes in `custom_rpmb_write()`
+
+## 2026-06-16 -- v2.0.0: 6 Devices, 4 SoCs, Full HyperOS Lifecycle
 - Redmi 12 (fire, MT6769Z, HyperOS 2.0.207) confirmed unlocked by piotrurban — first HyperOS 2.0 confirmation
 - Key finding: lk_a and lk_b can carry different LK builds after OTA — slot A was COMPATIBLE_SECCFG_ONLY, slot B was COMPATIBLE (100/100). Always scan both slots.
 - MT6769Z RPMB sector confirmed at 57344 (same as MT6781)
