@@ -14,7 +14,7 @@
 | Device (codename, model) | SoC | UFS vendor | LK build | scan_lk verdict | Path | Result | Date | Tester |
 |-|-|-|-|-|-|-|-|-|
 | POCO M4 Pro 4G (fleur) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.11.0.TKEEUXM (Oct 2024) | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-03-23 | Jz8root |
-| Redmi Note 11 4G (fleur, 2201117SY) | MT6781 Helio G96 | SK Hynix H9HQ54AECMMDAR | `fleur-d01540d34-20220430143603` md5 `701bbd3ee76e780b030d8568368a7a4e` (HyperOS V816.0.1.0.TKEEUXM, EEA) | `COMPATIBLE_SECCFG_ONLY` (52/100) | B (seccfg only) | UNLOCKED | 2026-05-19 | miromraz |
+| Redmi Note 11S 4G (fleur, 2201117SY) | MT6781 Helio G96 | SK Hynix H9HQ54AECMMDAR | `fleur-d01540d34-20220430143603` md5 `701bbd3ee76e780b030d8568368a7a4e` (HyperOS V816.0.1.0.TKEEUXM, EEA) | `COMPATIBLE_SECCFG_ONLY` (52/100) | B (seccfg only) | UNLOCKED | 2026-05-19 | miromraz |
 | Redmi Note 11S Global (miel, 2201117SG) | MT6781 Helio G96 | Samsung KM8L9001JM-B62 | `fleur-90fe266d7-20240412152854-20241206204609` (HyperOS OS1.0.9.0.TKEMIXM) | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-05 | itsme |
 | Redmi Note 11S (miel, MT6781) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.9.0.TKEEUXM | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-06-15 | kwhj4ff67r-crypto |
 | Redmi Note 13 5G (gold) | MT6833 Dimensity 6080 | Samsung | HyperOS 3.0.9.0.VNQCNXM (Android 15) `gold-c2e4398a1-20260513092248-20260514074541` | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 65504** + seccfg) | UNLOCKED | 2026-06-15 | KTS618 |
