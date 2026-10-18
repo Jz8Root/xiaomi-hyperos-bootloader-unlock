@@ -35,7 +35,7 @@ int mi_check_magic(void) {    // FUN_0003b848
 
   if (rpmb_type == 0x1000000) {       // Alt UFS type
     offset = 0xe000;
-  } else if (rpmb_type == 0x400000) { // Samsung UFS type
+  } else if (rpmb_type == 0x400000) { // UFS 4 MiB layout (all confirmed Tier 1 devices)
     offset = 0x3fe0;
   } else {
     return 7;                          // Unknown type → error
@@ -54,7 +54,7 @@ int mi_check_magic(void) {    // FUN_0003b848
 ```
 
 **What this proves:**
-- The LK reads 8 bytes from RPMB block address 0x3FE0 (Samsung UFS path)
+- The LK reads 8 bytes from RPMB block address 0x3FE0 (UFS 4 MiB path, type 0x400000)
 - It compares them against the hardcoded constant "Jz8PNRUF" at offset 0x110608 in the LK binary
 - Return 0 = magic present (RPMB overrides seccfg → LOCKED)
 - Return 3 = magic absent (fallback to seccfg → UNLOCK if seccfg says so)
@@ -154,8 +154,37 @@ confirms *what* is read (magic at offset 0x3FE0, compared against "Jz8PNRUF").
 The mtkclient source confirms *how* users erase it (sector 57344, passed directly
 to hardware). The before/after dumps confirm *that it works*.
 
-> Technical note: 0x3FE0 from the Ghidra decompilation of the Samsung UFS path
-> in mi_check_magic. Interpreted as a 256-byte block index:
-> 0x3FE0 × 256 = 0x3FE000 = 4,186,112 bytes — 8 KB from the end of a 4 MB RPMB
+> Technical note: 0x3FE0 from the Ghidra decompilation of the UFS 4 MiB path
+> (type 0x400000) in mi_check_magic. Interpreted as a 256-byte block index:
+> 0x3FE0 x 256 = 0x3FE000 = 4,186,112 bytes -- 8 KB from the end of a 4 MB RPMB
 > (0x400000 = 4,194,304). Consistent with a reserved metadata region at the tail
 > of the RPMB partition.
+
+## 5. Additional Findings (October 2026)
+
+### MT6833 sector depends on LK driver family, not SoC alone
+
+ogmkp (POCO M4 5G `thunder`, MT6833 Dimensity 700, [#18](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/18)) decompiled the `light` LK driver and found the divergence with `gold`:
+
+- LK `0x34C2C`: selects internal base, two UFS capacity cases produce `0x003FE000` or `0x00FFE000`
+- LK `0x6AD96`: `uxth r3, r6` truncates the starting RPMB address to 16 bits before constructing the request
+- Result: `0x003FE000 & 0xFFFF = 0xE000` and `0x00FFE000 & 0xFFFF = 0xE000`, both map to sector 57344
+
+The `gold` driver (Dimensity 6080, Redmi Note 13 5G) does not perform this truncation and maps to sector 65504.
+
+| LK family | SoC marketing | Sector | Dump offset | Status |
+|-|-|-|-|-|
+| gold | Dimensity 6080 | 65504 | `0xFFE000` | Tier 1 (KTS618, Gkhupo) |
+| light | Dimensity 700 | 57344 | `0xE00000` | Tier 1 (ogmkp) |
+
+### Preloader magic restoration on Tier 3b devices
+
+LucaCraft89 (rubypro, MT6877, SK Hynix UFS, [#13](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/13)) performed a three-dump sequence that proved the preloader is the restorer:
+
+1. After erase + cold BROM re-entry: magic **absent** (erase persists in flash)
+2. After any boot path (even just reaching the Mi logo): magic **present** (preloader restores it)
+3. The `0xAA` marker test: 248 bytes of a 256-byte sector persisted across cold cycle, only the 8 magic bytes reverted to `Jz8PNRUF`
+
+Both LucaCraft89 and burg1ar (pissarrro, MT6877, Samsung UFS, [#11](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/11)) ran the full `erase -> reset -> seccfg unlock -> reset -> fastboot` sequence and obtained `unlocked: no` -- confirming the preloader restoration survives the complete procedure.
+
+vivaad (earth, Redmi 12C, MT6769Z eMMC, [#8](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/8)) reproduced the same pattern on a different SoC and storage type, and added one new finding: the preloader boot1 partition dump does **not** contain the literal string `Jz8PNRUF`. The restorer either computes the value or resides in a flash region outside the boot1 dump.
