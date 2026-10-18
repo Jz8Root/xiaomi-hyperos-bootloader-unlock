@@ -520,15 +520,30 @@ A: Yes. `mtk da seccfg lock` relocks. Full lock/unlock cycle tested and reversib
 A: We only need to remove the magic string. The lock state length and signature data at higher sectors are irrelevant once the magic is absent — the LK falls back to seccfg without reading them.
 
 **Q: Every command said success but nothing is unlocked. What happened?**  
-A: Two known causes, both silent, and both print a perfect log.
+A: Three known causes, listed from most to least common. All three are silent and all three print a perfect log.
 
 1. **You were on a USB 3.0 port.** Writes get acknowledged but never reach flash. Move to a black USB 2.0 port and redo the whole procedure. See [Use a USB 2.0 port](#use-a-usb-20-port-never-usb-30).
 2. **The phone started up between the erase and the unlock.** The preloader rewrites the magic on any start-up, and the Mi logo alone is enough. Never use the Power button in that window. See [the rule](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
+3. **Your device is in Tier 3b (MT6877 or earth / Redmi 12C eMMC).** On these, the preloader restores the magic on **every** boot path, including the boot into fastboot. See the next question.
 
 Diagnose by re-reading rather than by reading logs: dump the RPMB in a fresh BROM session and `grep -boa "Jz8PNRUF"`. If the magic is present, the erase did not survive. If the record at `0xE20000` reads `wrong unlock data` instead of `milock state`, the boot chain ran and reverted you.
 
+**Q: I did the full sequence correctly, the erase persists in a cold BROM re-read, but fastboot still says `unlocked: no`. What is happening?**  
+A: Your device is almost certainly in [Tier 3b](COMPATIBILITY.md#tier-3b--preloader-restores-magic-on-boot-hard-block-no-bypass-yet). On MT6877 (rubypro, pissarrro, pissarropro) and `earth` (Redmi 12C, MT6769Z eMMC), the preloader restores the 8 magic bytes on every start-up, including the start-up needed to reach fastboot mode. The boot chain is preloader -> LK -> fastboot, and there is no way to reach fastboot without the preloader running.
+
+What is proven:
+- The erase reaches flash and persists in a cold BROM re-read (confirmed by LucaCraft89's three-dump test on rubypro)
+- `seccfg unlock` succeeds at the flash level (seccfg reads `lock_state=3`)
+- The preloader restores only the 8 magic bytes, nothing else in the sector is touched (0xAA marker test)
+- On earth, the restorer does not appear as a literal `Jz8PNRUF` string in the preloader boot1 dump (vivaad), suggesting it computes the value rather than copying it
+
+This is a hard block for the current method. The realistic bypass path is reversing the MT6877 and earth preloaders in Ghidra to find and patch the magic-restoration code before handing off to LK. That work is open. If you have the hardware to help, see the "What would help" section in [COMPATIBILITY.md](COMPATIBILITY.md).
+
 **Q: `fastboot oem lks` returns an error. Did it fail?**  
 A: Not necessarily. That OEM command is not implemented on every LK build. On sea/MT6781 it returns `EX_UNSUPPORTED_OPERATION` while the device is genuinely unlocked. `fastboot getvar unlocked` is the authoritative check.
+
+**Q: My device is MT6833 and the scanner says sector 65504, but my grep returned 57344. Which do I trust?**  
+A: The grep. MT6833 ships with two different LK driver families (`gold` and `light`), and they use different internal RPMB offset logic. On `gold` (Dimensity 6080, Redmi Note 13 5G) the magic lives at sector 65504. On `light` (Dimensity 700, POCO M4 5G `thunder`) it lives at sector 57344. ogmkp traced the divergence to a `uxth` truncation at LK offset `0x6AD96` on the light driver, which clamps the RPMB address to 16 bits and reduces both internal base values to 57344. Both are verified on hardware. Always grep your dump.
 
 </details>
 
