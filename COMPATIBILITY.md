@@ -58,34 +58,68 @@ These devices have documented mtkclient issues with the exact same problem: "sec
 | Redmi Note 9 Pro 5G / Mi 10T Lite | MT6873 | — |
 | Redmi Note 9 5G / Note 9T | MT6853 | — |
 | Redmi 9 / Note 9 (lancelot) | MT6769 | — |
-| Redmi 12C (earth) | MT6765 | — |
 | Redmi 10C / 10A / 9A / 9C | MT6762 | #81 #738 #1405 |
 
 Issues #81 and #738 have been open since **2021**.
 
-## Tier 3b — BROM ACCESSIBLE, ERASE DOES NOT PERSIST (under investigation)
+## Tier 3b -- PRELOADER RESTORES MAGIC ON BOOT (hard block, no bypass yet)
 
 Kamakiri works, BROM is reachable, the RPMB reads and writes fine, and `scan_lk.py` returns
-`COMPATIBLE_FULL`. What fails is that the erased magic is back after a power cycle. Four
-independent reports, one SoC.
+`COMPATIBLE_FULL`. The erase reaches flash and persists in a cold BROM re-read, but any boot
+path through the preloader restores the 8 magic bytes before LK evaluates the lock state.
+Fastboot verification therefore always reports locked, even after a full erase + seccfg unlock
+sequence. **Two independent clusters, same root cause.**
 
-| Device | SoC | Storage | Reporter | Where |
-|-|-|-|-|-|
-| Redmi Note 12 Pro+ 5G (rubypro) | MT6877 | SK Hynix `H9QT1G6DN6X132` | LucaCraft89 | [#13][i13], bkerler/mtkclient#305 |
-| Redmi Note 11 Pro (pissarrro) | MT6877 | (not reported) | burg1ar | [#11][i11] |
-| Redmi Note 11 Pro+ (pissarropro) | MT6877 / D920 | (not reported) | dexus19 | bkerler/mtkclient#305 |
-| Redmi Note 12 Pro+ (IN variant) | MT6877 | (not reported) | RWBMAL | [#8][i8] |
+### Cluster 1: MT6877
 
-What has been measured so far, on rubypro:
+| Device | SoC | Storage | Reporter | Full sequence tested | Where |
+|-|-|-|-|-|-|
+| Redmi Note 12 Pro+ 5G (rubypro) | MT6877 | SK Hynix `H9QT1G6DN6X132` | LucaCraft89 | yes, locked after | [#13][i13], bkerler/mtkclient#305 |
+| Redmi Note 11 Pro (pissarrro) | MT6877 | Samsung `KM8F9001JM-B81` | burg1ar | yes, locked after | [#11][i11] |
+| Redmi Note 11 Pro+ (pissarropro) | MT6877 / D920 | (not reported) | dexus19 | not reported | bkerler/mtkclient#305 |
+| Redmi Note 12 Pro+ (IN variant) | MT6877 | (not reported) | RWBMAL | not reported | [#8][i8] |
 
-- the controller accepts the write, `resp=0` with the [mtkclient#307](https://github.com/bkerler/mtkclient/pull/307) reporting fix applied
-- writing `0xAA` across the whole 256-byte sector, then reading cold, shows 248 bytes persisted
-  and only the 8 magic bytes reverted to `Jz8PNRUF`
-- a same-session re-read shows the magic gone, which is a false positive, see the README
+### Cluster 2: MT6769Z eMMC
 
-Two candidate explanations are still open: a boot stage restoring the field, or the field being
-regenerated below the write path. If you own one of these devices, a dump before and after a
-genuine cold cycle is the most useful thing you can contribute.
+| Device | SoC | Storage | Reporter | Full sequence tested | Where |
+|-|-|-|-|-|-|
+| Redmi 12C (earth) | MT6769Z | eMMC `Y2P064` | ssg-enjoyer | yes, locked after | [#8][i8] |
+| Redmi 12C (earth) | MT6768/MT6769 | eMMC `Y2P064` | vivaad | yes, locked after + preloader boot1 dump has no literal `Jz8PNRUF` | [#8][i8] |
+
+### What has been measured
+
+**On rubypro (LucaCraft89):**
+
+- Controller accepts the write, `resp=0` with the [mtkclient#307](https://github.com/bkerler/mtkclient/pull/307) reporting fix applied (merged August 2026)
+- Writing `0xAA` across the whole 256-byte sector, then reading cold, shows 248 bytes persisted and only the 8 magic bytes reverted to `Jz8PNRUF`
+- A same-session re-read shows the magic gone, which is a false positive (see README on cold verification)
+- Full `erase -> reset -> seccfg unlock -> reset -> fastboot` sequence runs cleanly and ends with `unlocked: no`
+
+**On pissarrro (burg1ar):**
+
+- Same symptom as rubypro, Samsung UFS instead of SK Hynix: `erase + seccfg unlock` in a single DA session, seccfg reports `Device is already unlocked`, fastboot returns `unlocked: no`. The UFS vendor is not the variable.
+
+**On earth (vivaad):**
+
+- Erase at sector 57344, immediate readback shows the sector zeroed
+- seccfg forced to `lock_state=3`, `dm_verity_state=1`
+- After boot, `Jz8PNRUF` is back at sector 57344, fastboot returns `unlocked: no`
+- The preloader boot1 dump (`mtk.py r preloader --parttype=boot1`) does **not** contain the literal string `Jz8PNRUF`. The restorer either computes the value rather than carrying it as a literal, or lives in a flash region outside boot1.
+
+### What is still open
+
+The restoration mechanism is not fully characterised yet. The current best hypothesis is that
+the preloader (or a stage before LK) rewrites the magic from a generated value during early
+boot. On MT6877 and MT6769Z/eMMC it fires on every boot; on the Tier 1 SoCs it does not. The
+realistic next step is reversing the preloader binary in Ghidra to find the exact caller.
+
+### What would help
+
+If you own one of these devices, three things move the needle:
+
+1. Repeat the cold-cycle test: `erase -> mtk.py reset -> cold BROM re-entry -> rpmb r -> grep`. If the magic is already back **without** a boot in between, the restorer lives below the DA level.
+2. If you have the hardware to open the device, dump the full eMMC/UFS boot1 and boot2 partitions. Share the raw dumps (or an SHA256 and byte offsets of any `Jz8PNRUF` hits) so we can locate the restorer in flash.
+3. Share your `scan_lk.py --json` output and your UFS/eMMC ID. Vendor cross-reference matters.
 
 ## Tier 4 — NOT COMPATIBLE (BROM V6 — Kamakiri patched in hardware)
 
