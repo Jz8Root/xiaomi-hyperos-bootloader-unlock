@@ -24,7 +24,9 @@ Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Prot
 
 **The fix:** erase the RPMB magic. This forces the LK to fall back to seccfg, which mtkclient can freely write to UNLOCK.
 
-**Why it persists across reboots:** when the magic is absent AND seccfg = UNLOCK, the LK does NOT rewrite the magic. The code path that restores the magic only triggers when seccfg != UNLOCK. This behavior is inferred from the Ghidra decompilation of `mi_get_lock_state()` and confirmed empirically: RPMB dumps taken after multiple reboots show the magic region remains zeroed. See [proof/VERIFICATION.md](proof/VERIFICATION.md) for dump evidence.
+**Why it persists across reboots on confirmed devices:** on the 8 Tier 1 devices (MT6781, MT6769Z UFS, MT6833), the preloader does not rewrite the magic once seccfg has been set to UNLOCK, so the erase holds and the device boots to the unlocked state. RPMB dumps taken days or weeks after the original unlock still show the magic region zeroed. See [proof/VERIFICATION.md](proof/VERIFICATION.md) for dump evidence.
+
+**Where this does not hold:** on MT6877 (rubypro, pissarrro, pissarropro) and on `earth` (Redmi 12C, MT6769Z eMMC), the preloader restores the 8 magic bytes on every start-up regardless of seccfg state. The erase reaches flash and persists in BROM (cold re-read confirms it) but any boot path through the preloader puts it back, which means fastboot verification always reports locked. These devices are listed in [COMPATIBILITY.md](COMPATIBILITY.md) under Tier 3b (investigation open, no bypass yet).
 
 ![mi_check_magic() boot flow](assets/mi_check_magic_flow.png)
 
@@ -274,7 +276,8 @@ Dump your RPMB and grep for the magic string:
 python3 mtk.py da rpmb r rpmb_dump.bin
 grep -boa "Jz8PNRUF" rpmb_dump.bin
 # byte_offset / 256 = your sector
-# MT6781/MT6769Z → 57344  |  MT6833 → 65504  |  unknown SoC → use grep result
+# Known: MT6781/MT6769Z UFS = 57344 | MT6833 gold = 65504 | MT6833 light = 57344
+# MT6833 varies by LK family: do not assume 65504, always grep. Unknown SoC: use grep result.
 ```
 
 **If grep returns more than one offset, they are not separate copies.** The dump mtkclient
@@ -450,12 +453,19 @@ for a different offset just because your UFS is not Samsung.
 
 Known values:
 
-| SoC | Sector | Dump offset | Confirmed by |
-|-|-|-|-|
-| MT6781 (Helio G96) | 57344 | `0xE00000` | fleur, miel, sea |
-| MT6769Z (Helio G85) | 57344 | `0xE00000` | fire |
-| MT6833 (Dimensity 6080) | 65504 | `0xFFE000` | gold, found by KTS618 |
-| MT6877 (Dimensity 920/1080) | 57344 | `0xE00000` | rubypro |
+| SoC / LK family | Sector | Dump offset | Confirmed by | Unlock status |
+|-|-|-|-|-|
+| MT6781 (Helio G96) | 57344 | `0xE00000` | fleur, miel, sea | **Tier 1** |
+| MT6769Z (Helio G85) UFS | 57344 | `0xE00000` | fire | **Tier 1** |
+| MT6833 Dimensity 6080, gold LK | 65504 | `0xFFE000` | gold, found by KTS618 | **Tier 1** |
+| MT6833 Dimensity 700, light LK | 57344 | `0xE00000` | thunder, found by ogmkp | **Tier 1** |
+| MT6877 (Dimensity 920/1080) | 57344 | `0xE00000` | rubypro, pissarrro | Tier 3b (sector detected, preloader restores magic on boot, no unlock achieved) |
+| MT6769Z eMMC (earth) | 57344 | `0xE00000` | ssg-enjoyer, vivaad | Tier 3b (same restoration pattern as MT6877) |
+
+The right column distinguishes the sector we have detected on the device from whether the unlock
+has actually been achieved on hardware. On Tier 3b entries the sector is correct and the erase
+reaches flash, but the preloader restores the magic on every boot and fastboot verification always
+reports locked. See [COMPATIBILITY.md](COMPATIBILITY.md) for the full breakdown.
 
 If your SoC is not listed, dump the RPMB and grep. And read the note on multiple hits above:
 offsets exactly 16 MiB apart are aliases of one location, not separate copies.
