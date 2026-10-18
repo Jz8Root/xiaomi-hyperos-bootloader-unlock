@@ -70,14 +70,40 @@ body:
     attributes:
       label: RPMB sector erased (Path A only)
       description: >-
-        Which sector did you erase, and how did you find it? There is no default value,
-        the sector is SoC-specific. Get yours with:
+        Which sector did you erase, and how did you find it? The sector depends on the LK
+        driver family, not on the SoC alone. Get yours with:
         `python3 mtk.py da rpmb r rpmb_dump.bin` then `grep -boa "Jz8PNRUF" rpmb_dump.bin`
-        (byte offset / 256 = sector). Known values: MT6781/MT6769Z/MT6877 = 57344,
-        MT6833 = 65504. Leave as "n/a" if you took Path B (seccfg only).
+        (byte offset / 256 = sector). Known values: MT6781/MT6769Z UFS = 57344,
+        MT6833 gold = 65504, MT6833 light = 57344, MT6877 = 57344. MT6833 varies by LK
+        family (gold vs light), do not assume a value, always grep. Leave as "n/a" if you
+        took Path B (seccfg only).
       placeholder: 'e.g. 57344, grep returned 14680064 and 31457280 (16 MiB alias), erased the lowest'
     validations:
       required: true
+  - type: input
+    id: storage
+    attributes:
+      label: Storage identifier (UFS ID or EMMC ID)
+      description: >-
+        From the mtkclient log, the `DAXFlash - UFS ID:` or `DAXFlash - EMMC ID:` line.
+        This matters for the compatibility database because the eMMC vs UFS split
+        currently separates confirmed unlocks from the Tier 3b hard-block cluster on
+        same-SoC devices.
+      placeholder: 'e.g. UFS KM8L9001JM-B62 or EMMC Y2P064'
+    validations:
+      required: false
+  - type: input
+    id: active_slot
+    attributes:
+      label: Active slot (a/b) and LK build string
+      description: >-
+        Output of `fastboot getvar current-slot` and the LK build string from your
+        active slot. Grep: `strings lk_a.bin | grep -E '^<codename>-'` or run
+        `scan_lk.py` which reports it. Required for the LK-build-indexed compatibility
+        entry, since the same codename can carry different LK generations across OTAs.
+      placeholder: 'e.g. slot a, light-072f5dbd2-20231011161345-20250722115219'
+    validations:
+      required: false
   - type: dropdown
     id: persistent
     attributes:
