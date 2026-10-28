@@ -1,6 +1,6 @@
 # Xiaomi MTK Bootloader Unlock — HyperOS/MIUI14+ RPMB Bypass
 
-**Affects:** All Xiaomi MTK devices with HyperOS/MIUI14+ and Kamakiri BROM access  
+**Scope:** Xiaomi MTK devices with Kamakiri BROM access; compatibility is LK-build-specific and not universal
 **XDA Thread:** [xdaforums.com/t/4784527](https://xdaforums.com/t/4784527/)  
 **Author:** [Jz8root](https://github.com/Jz8Root)
 
@@ -8,12 +8,16 @@
 
 ## The Problem
 
-Since MIUI 14.0.3+ and HyperOS, `mtkclient da seccfg unlock` succeeds without errors — but the bootloader remains locked after reboot. This has been reported and left unsolved for 2+ years:
-
-- [mtkclient #81](https://github.com/bkerler/mtkclient/issues/81) — Redmi 9A/9C (MT6762G) — open since 2021
-- [mtkclient #764](https://github.com/bkerler/mtkclient/issues/764) — Redmi 10 5G (MT6833)
-- [mtkclient #1405](https://github.com/bkerler/mtkclient/issues/1405) — MT6762G devices
-- [mtkclient #1219](https://github.com/bkerler/mtkclient/issues/1219) — Redmi Note 8 Pro (MT6785)
+On affected MIUI 14 and HyperOS builds, `mtkclient da seccfg unlock` can succeed
+without errors while the bootloader remains locked after reboot. The current
+hardware evidence is tracked in this repository rather than inferred from old
+device lists: `earth`/MT6769 eMMC ([#8][i8]), `fire`/MT6769Z eMMC
+([issue #10](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/10)),
+MT6877 devices ([issue #11](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/11),
+[#13][i13]) and `agate`/MT6893
+([issue #14](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/14)).
+These reports do not all share one root cause, which is why the procedure is
+gated on both LK analysis and live RPMB state.
 
 ## Root Cause
 
@@ -24,9 +28,9 @@ Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Prot
 
 **The fix:** erase the RPMB magic. This forces the LK to fall back to seccfg, which mtkclient can freely write to UNLOCK.
 
-**Why it persists across reboots on confirmed devices:** on the 8 Tier 1 devices (MT6781, MT6769Z UFS, MT6833), the preloader does not rewrite the magic once seccfg has been set to UNLOCK, so the erase holds and the device boots to the unlocked state. RPMB dumps taken days or weeks after the original unlock still show the magic region zeroed. See [proof/VERIFICATION.md](proof/VERIFICATION.md) for dump evidence.
+**Why it persists across reboots on confirmed devices:** on the Tier 1 devices (MT6781, MT6769Z, MT6833), no boot stage restores the magic once seccfg has been set to UNLOCK, so the erase holds and the device boots to the unlocked state. RPMB dumps taken days or weeks after the original unlock still show the magic region zeroed. See [proof/VERIFICATION.md](proof/VERIFICATION.md) for dump evidence.
 
-**Where this does not hold:** on MT6877 (rubypro, pissarrro, pissarropro) and on `earth` (Redmi 12C, MT6769Z eMMC), the preloader restores the 8 magic bytes on every start-up regardless of seccfg state. The erase reaches flash and persists in BROM (cold re-read confirms it) but any boot path through the preloader puts it back, which means fastboot verification always reports locked. These devices are listed in [COMPATIBILITY.md](COMPATIBILITY.md) under Tier 3b (investigation open, no bypass yet).
+**Where this does not hold:** on MT6877 (rubypro, pissarrro, pissarropro) and on `earth` (Redmi 12C, MT6769Z eMMC), the early boot chain restores the 8 magic bytes on every start-up regardless of seccfg state. The erase reaches flash and survives a reset plus cold BROM re-entry, but allowing the normal boot chain to run puts it back, which means fastboot verification always reports locked. The exact writer (preloader, another loader, ATF/TEE or LK) has not yet been isolated. These devices are listed in [COMPATIBILITY.md](COMPATIBILITY.md) under Tier 3b (investigation open, no bypass yet).
 
 ![mi_check_magic() boot flow](assets/mi_check_magic_flow.png)
 
@@ -50,11 +54,14 @@ ship different LK builds with different lock implementations.
 - **A USB 2.0 port.** Not USB 3.0. See below, this one silently ruins runs.
 - **MANDATORY:** Full backup of NV partitions (commands below)
 
-### Use a USB 2.0 port, never USB 3.0
+<a id="use-a-usb-20-port-never-usb-30"></a>
 
-On this chipset family, RPMB and seccfg writes over a USB 3.0 controller get acknowledged by
-mtkclient's protocol layer and **never physically commit to flash**. The tool prints
-`Successfully wrote seccfg`, the operation looks perfect, and nothing has changed on the device.
+### Use a USB 2.0 port; avoid USB 3.x for writes
+
+At least one `earth` report showed RPMB and seccfg writes acknowledged through a USB 3.x host
+controller without the expected state change. The tool printed `Successfully wrote seccfg`, the
+operation looked correct, and the flags remained unchanged. This is a host/device observation,
+not a claim that every USB 3.x controller universally drops MTK writes.
 
 The signature is unmistakable once you know it: every command reports success, and every flag is
 exactly as it was before you started.
@@ -65,8 +72,10 @@ fastboot getvar unlocked   -> unlocked: no   unchanged
 fastboot getvar secure     -> secure: yes    unchanged
 ```
 
-Diagnosed on earth/MT6769Z in [#8][i8], where the reporter had switched to the blue port without
-realising. Use the **black** USB 2.0 port, front or back, and prefer a direct connection over a hub.
+Observed on earth/MT6769Z in [#8][i8], where the reporter had switched to the blue port without
+realising. Later tests on another earth device also found a separate early-boot restoration block,
+so USB transport failure and Tier 3b restoration must not be conflated. Use a known USB 2.0 path
+for writes, and prefer a direct connection over an unpowered hub.
 
 Two traps worth knowing:
 
@@ -149,7 +158,7 @@ preloader → LK, and the keys then trigger fastboot or recovery instead.
 "FASTBOOT" text, the unlocked-warning screen, a vibration — the timing was wrong. Unplug,
 force-off, retry.
 
-**If this happens after an RPMB erase**, the preloader has already run and has restored the magic.
+**If this happens after an RPMB erase**, the normal boot chain has run and may have restored the magic.
 Re-dump to confirm, redo the erase, and retry the BROM entry using only the volume keys. See
 [the rule below](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
 
@@ -167,17 +176,18 @@ replug.
 🚨 This is the single most important rule in this document, and it is the reason most reported
 failures fail.
 
-**The preloader rewrites the RPMB magic on every start-up.** Not LK, not HyperOS. The preloader.
-Reaching the Mi logo is enough. So anything that starts the phone between your erase and your
-unlock silently undoes the erase, and nothing tells you.
+**The early boot chain can rewrite the RPMB magic on start-up.** Reaching the Mi logo is enough.
+So anything that starts the phone between your erase and your unlock can silently undo the erase,
+and nothing tells you. The exact writer is still under investigation; the operational rule does
+not depend on which boot stage performs the write.
 
 Re-entering BROM does **not** start the phone, so it is safe:
 
 | Action | Safe? | Why |
 |-|-|-|
-| unplug, hold Vol+ and Vol-, replug | ✅ | BROM only, the preloader never runs |
-| Power button to shut down or restart | ❌ | preloader runs, magic is rewritten |
-| letting the Mi logo appear at all | ❌ | preloader has already run |
+| unplug, hold Vol+ and Vol-, replug | ✅ | BROM only, the normal boot chain never runs |
+| Power button to shut down or restart | ❌ | normal boot starts, magic may be rewritten |
+| letting the Mi logo appear at all | ❌ | the boot chain has already run |
 | `fastboot reboot` | ❌ | same |
 
 So the erase and the unlock are two ordinary BROM sessions, with a normal unplug and key-combo
@@ -191,9 +201,10 @@ python mtk.py da seccfg unlock
 
 **How this was established.** LucaCraft89 ([#13][i13]) ran three dumps on rubypro/MT6877. After the
 erase and a full cold BROM re-entry with Kamakiri re-run and the DA re-uploaded, the magic was
-**gone**. He then powered the phone off with the buttons, re-read, and the magic was **back**. He
-also confirmed it returns when the phone only reaches the Mi logo, which is what pins the
-responsibility on the preloader rather than on LK.
+**gone**. He then allowed a normal start-up, re-read, and the magic was **back**. vivaad ([#8][i8])
+later isolated the same boundary on earth/eMMC: the sector stayed zero after `mtk.py reset` and a
+cold BROM re-entry, then exactly the 8 magic bytes returned after reaching the Mi logo. This proves
+the writer runs during the normal boot chain, but does not by itself identify which stage writes it.
 
 **Why the phone sometimes ends up in a strange state:** after `da rpmb e` completes, mtkclient
 calls neither `close()` nor `shutdown()`. The command returns and leaves the device with the DA
@@ -238,7 +249,7 @@ IMEI and baseband. Keep these backups for months — they're your recovery path.
 
 ### Step 1 — Identify your LK with `scan_lk.py` ⟵ DECISION POINT
 
-**Scan both slots — they can differ.** After an OTA update, slot A and slot B can carry different LK builds. Confirmed on Redmi 12 (fire, HyperOS 2.0): lk_a = COMPATIBLE_SECCFG_ONLY, lk_b = COMPATIBLE_FULL. The device boots on the active slot — use that result.
+**Scan both slots — they can differ.** After an OTA update, slot A and slot B can carry different LK builds. Confirmed independently on Redmi 12 (`fire`, HyperOS 2.0) and POCO M4 Pro 4G (`fleur`, HyperOS 1.0.2.0): in both reports `lk_a = COMPATIBLE_SECCFG_ONLY` while the active `lk_b = COMPATIBLE_FULL`. The device boots on the active slot — use that result.
 
 ```bash
 python3 scan_lk.py lk_a.bin
@@ -250,33 +261,36 @@ The verdict drives which path you take:
 
 | Verdict | Meaning | Path |
 |-|-|-|
-| `COMPATIBLE_FULL` | Magic `Jz8PNRUF` present in LK → `mi_check_magic()` is active | **Path A** below |
-| `COMPATIBLE_SECCFG_ONLY` | Magic absent → LK falls back to seccfg unconditionally | **Path B** below |
-| `MAYBE` / `UNKNOWN` | Not enough evidence to classify. Investigate manually, and share your `scan_lk.py --json` output in an issue | neither |
+| `COMPATIBLE_FULL` | Known magic and seccfg support are present in LK; live RPMB initialization is not proven by the binary alone | **Path A candidate** below |
+| `COMPATIBLE_SECCFG_ONLY` | Known magic and contradictory `mi_get_lock_state` signal are absent | **Path B candidate** below |
+| `MAYBE` / `UNKNOWN` | Evidence is incomplete or contradictory. Investigate manually and share `scan_lk.py --json` | neither |
 
 > **Do not read the Path B score as a confidence level.** A `COMPATIBLE_SECCFG_ONLY` verdict
 > tops out at **44/100 by construction**, because 47 of the 100 points are the magic string
 > that a Path B device does not have, and the `mi_check_magic` check keys off that same
 > string. A 31/100 Path B verdict is not a weak result: the absent magic *is* the finding.
-> Only Path A verdicts should be read against the 0-100 scale.
+> Only Path A verdicts should be read against the 0-100 scale. A `MAYBE` verdict with
+> `mi_get_lock_state` is different: issue #10 shows that contradictory RPMB signals must be
+> investigated rather than treated as ordinary Path B.
 
 > Older fleur units (and other "HyperOS-eligible" devices) ship the MIUI-13-era LK
 > that Xiaomi never updated. On those, the RPMB lock layer simply isn't implemented
 > and the destructive RPMB erase step is unnecessary. The scanner is the only
 > reliable way to tell from outside.
 
-### Path A — `COMPATIBLE_FULL` (RPMB magic present)
+### Path A — `COMPATIBLE_FULL` (known RPMB mechanism in LK)
 
 Three commands, one BROM cycle each:
 
-**⚠️ Before erasing: locate your RPMB magic sector first** — it is SoC-specific.
+**⚠️ Before erasing: locate the live RPMB magic first.** Its mapping depends on
+the LK/storage driver family and cannot be inferred safely from the SoC name.
 Dump your RPMB and grep for the magic string:
 
 ```bash
 python3 mtk.py da rpmb r rpmb_dump.bin
 grep -boa "Jz8PNRUF" rpmb_dump.bin
 # byte_offset / 256 = your sector
-# Known: MT6781/MT6769Z UFS = 57344 | MT6833 gold = 65504 | MT6833 light = 57344
+# Known: MT6781/MT6769Z = 57344 | MT6833 gold = 65504 | MT6833 light = 57344
 # MT6833 varies by LK family: do not assume 65504, always grep. Unknown SoC: use grep result.
 ```
 
@@ -319,7 +333,7 @@ the DEFAULT→seccfg fallback path.
 
 #### If you re-dump to check the erase, do it in a separate cold session
 
-⚠️ A `da rpmb r` issued without a full power cycle in between can reattach to the still-live DA
+⚠️ A `da rpmb r` issued without a cold DA shutdown in between can reattach to the still-live DA
 session and return a **volatile view** in which the magic already looks erased, whether or not
 anything reached the flash. That is a false positive, and it is convincing enough to make you
 believe the erase worked when it did not.
@@ -329,32 +343,34 @@ believe the erase worked when it did not.
 python mtk.py da rpmb e --sector <YOUR_SECTOR> --sectors 4
 python mtk.py da rpmb r rpmb_check.bin
 
-# RIGHT: power cycle, fresh BROM entry, then read
+# RIGHT: DA shutdown, cold BROM entry, then read without a normal boot
 python mtk.py da rpmb e --sector <YOUR_SECTOR> --sectors 4
-#   ... power the phone down completely, re-enter BROM ...
+python mtk.py reset
+#   ... unplug, hold Vol+ and Vol-, replug directly into BROM ...
 python mtk.py da rpmb r rpmb_check.bin
 grep -boa "Jz8PNRUF" rpmb_check.bin
 ```
 
 Discovered by LucaCraft89 ([#13][i13]) while investigating an erase that reported success and did not
 persist. Three dumps were needed to see it: cold baseline, same-session read, and cold read after
-a power cycle. Only the third one tells you the truth.
+a DA shutdown plus fresh BROM entry. Only the third one tells you the truth.
 
 **Reading the signature field is a better check than the magic.** If the record at `0xE20000`
 contains `wrong unlock data` instead of `milock state`, the boot chain has flagged the record as
 tampered, which means it ran and inspected the RPMB. That distinguishes "erased then restored"
 from "never erased", which magic presence alone cannot. Observed by LucaCraft89 ([#13][i13]).
 
-**Storage vendor does not change the sector.** An earlier version of this document said sector
-57344 was "the Samsung layout" and that Hynix parts might place the magic elsewhere. That turned
-out to be wrong: rubypro carries SK Hynix `H9QT1G6DN6X132` and its magic sits at exactly the same
-offset, confirmed by grep in [#13][i13]. What does move the sector is the **SoC**, not the storage
-part. MT6781 and MT6769Z use 57344, MT6833 uses 65504.
+**Storage vendor alone does not determine the sector.** An earlier version called 57344 the
+"Samsung layout", but rubypro carries SK Hynix `H9QT1G6DN6X132` and has the same measured sector.
+Conversely, two MT6833 LK families use different sectors: `gold` uses 65504 while `light` uses
+57344. The mapping is therefore driver-family-specific, not a reliable function of vendor or SoC.
+Always use the live dump.
 
-If your dump has no magic at all AND `scan_lk.py` returned `COMPATIBLE_SECCFG_ONLY`, you do not
-need to find it, skip to Path B.
+If your dump has no magic and `scan_lk.py` returned `COMPATIBLE_SECCFG_ONLY`, skip to Path B. If
+the scanner returns `MAYBE` because an exact RPMB lock signal such as `mi_get_lock_state` remains,
+stop for manual analysis; issue #10 proves that absent `Jz8PNRUF` alone is not sufficient.
 
-### Path B — `COMPATIBLE_SECCFG_ONLY` (no RPMB magic — older LK)
+### Path B — `COMPATIBLE_SECCFG_ONLY` (clean seccfg-only candidate)
 
 One command:
 
@@ -362,7 +378,7 @@ One command:
 python mtk.py da seccfg unlock
 ```
 
-That's the entire write. No RPMB writes happen anywhere — the LK doesn't read the magic.
+That's the entire write. Do not add an RPMB erase to a clean Path B result.
 Look for these lines in the mtkclient output to confirm success:
 
 ```
@@ -400,12 +416,11 @@ unlocked: yes
 Reported on sea/MT6781 by katavnnn ([#12][i12]). Treat `oem lks` as a bonus signal, never as the
 verification step. An error there means the command is missing, not that the unlock failed.
 
-### Step 3 — Clear the dm-verity state (REQUIRED on first boot after unlock)
+### Step 3 — Handle the first boot state if required
 
-If you boot to Android directly after unlock, you'll see Android's **"Your device is corrupt"**
-dm-verity screen — that's actually proof the unlock took effect (a locked LK would have refused to hand
-off to Android at all). The pre-existing userdata was written under the old trust state; wipe it before
-the first Android boot:
+First verify `fastboot getvar unlocked: yes`, then try the normal boot. Some devices may reject the
+pre-existing userdata or metadata after the trust-state change and show a dm-verity/corruption screen.
+If that happens, return to fastboot and wipe the affected state:
 
 ```bash
 fastboot erase userdata
@@ -413,8 +428,9 @@ fastboot erase metadata
 fastboot reboot
 ```
 
-Phone will boot into a fresh HyperOS setup wizard. Subsequent boots show the orange "unlocked"
-warning for ~10 s — that's normal for an unlocked Xiaomi device.
+The `thunder` report in issue #18 booted Android without an explicit userdata or metadata erase, so
+the wipe is not universal. Treat the entire procedure as data-destructive anyway: no report can
+guarantee preservation for a different firmware, LK or pre-existing userdata state.
 
 <details>
 <summary><strong>RPMB Sector Reference</strong> (click to expand)</summary>
@@ -447,24 +463,24 @@ Command: `da rpmb e --sector 57344 --sectors 4`
 
 ### Other SoCs
 
-The sector is **SoC-specific, not storage-vendor-specific**. rubypro carries SK Hynix
-`H9QT1G6DN6X132` and has its magic at 57344 like the Samsung MT6781 parts, so do not go looking
-for a different offset just because your UFS is not Samsung.
+The sector is **LK/storage-driver-family-specific, not storage-vendor-specific**. rubypro carries
+SK Hynix `H9QT1G6DN6X132` and has its magic at 57344 like the Samsung MT6781 parts, while the
+`gold` and `light` MT6833 LK families differ despite sharing a SoC family. Always grep the dump.
 
 Known values:
 
 | SoC / LK family | Sector | Dump offset | Confirmed by | Unlock status |
 |-|-|-|-|-|
 | MT6781 (Helio G96) | 57344 | `0xE00000` | fleur, miel, sea | **Tier 1** |
-| MT6769Z (Helio G85) UFS | 57344 | `0xE00000` | fire | **Tier 1** |
+| MT6769Z (Helio G85/G88 family) | 57344 | `0xE00000` | fire, earth | Tier 1 on fire; Tier 3b on earth |
 | MT6833 Dimensity 6080, gold LK | 65504 | `0xFFE000` | gold, found by KTS618 | **Tier 1** |
 | MT6833 Dimensity 700, light LK | 57344 | `0xE00000` | thunder, found by ogmkp | **Tier 1** |
-| MT6877 (Dimensity 920/1080) | 57344 | `0xE00000` | rubypro, pissarrro | Tier 3b (sector detected, preloader restores magic on boot, no unlock achieved) |
+| MT6877 (Dimensity 920/1080) | 57344 | `0xE00000` | rubypro, pissarrro | Tier 3b (sector detected, early boot chain restores magic, no unlock achieved) |
 | MT6769Z eMMC (earth) | 57344 | `0xE00000` | ssg-enjoyer, vivaad | Tier 3b (same restoration pattern as MT6877) |
 
 The right column distinguishes the sector we have detected on the device from whether the unlock
 has actually been achieved on hardware. On Tier 3b entries the sector is correct and the erase
-reaches flash, but the preloader restores the magic on every boot and fastboot verification always
+reaches flash, but the early boot chain restores the magic on every boot and fastboot verification always
 reports locked. See [COMPATIBILITY.md](COMPATIBILITY.md) for the full breakdown.
 
 If your SoC is not listed, dump the RPMB and grep. And read the note on multiple hits above:
@@ -500,6 +516,8 @@ python3 scan_lk.py lk_a.bin --json  # structured output
 See [COMPATIBILITY.md](COMPATIBILITY.md) for the full device database — entries are indexed
 by LK build hash because the same codename can ship multiple LK generations.
 
+For a reference-quality hardware report, see [issue #18](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/18): it includes exact firmware and LK hashes, storage identifiers, slot state, measured byte changes, cold-boot verification and explicit limits on what was not tested.
+
 </details>
 
 <details>
@@ -511,7 +529,7 @@ by LK build hash because the same codename can ship multiple LK generations.
 A: mtkclient derives the RPMB authentication key via the HACC engine through SEJ after the Kamakiri BROM exploit — the same mechanism it uses to handle SecCfgV4 encryption. The key derivation happens transparently when you run the `da rpmb e` command.
 
 **Q: Will this wipe my data?**  
-A: Yes. Unlocking the bootloader triggers a factory reset on first boot. Back up everything.
+A: Assume yes and back up everything. Some devices require a userdata/metadata wipe after the trust-state change, while the `thunder` hardware report booted without an explicit wipe. There is no cross-build guarantee of data preservation.
 
 **Q: Can I relock after?**  
 A: Yes. `mtk da seccfg lock` relocks. Full lock/unlock cycle tested and reversible.
@@ -523,21 +541,22 @@ A: We only need to remove the magic string. The lock state length and signature 
 A: Three known causes, listed from most to least common. All three are silent and all three print a perfect log.
 
 1. **You were on a USB 3.0 port.** Writes get acknowledged but never reach flash. Move to a black USB 2.0 port and redo the whole procedure. See [Use a USB 2.0 port](#use-a-usb-20-port-never-usb-30).
-2. **The phone started up between the erase and the unlock.** The preloader rewrites the magic on any start-up, and the Mi logo alone is enough. Never use the Power button in that window. See [the rule](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
-3. **Your device is in Tier 3b (MT6877 or earth / Redmi 12C eMMC).** On these, the preloader restores the magic on **every** boot path, including the boot into fastboot. See the next question.
+2. **The phone started up between the erase and the unlock.** The early boot chain can rewrite the magic, and the Mi logo alone is enough. Never use the Power button in that window. See [the rule](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
+3. **Your device is in Tier 3b (MT6877 or earth / Redmi 12C eMMC).** On these, the early boot chain restores the magic on **every** tested boot path, including the boot into fastboot. See the next question.
 
 Diagnose by re-reading rather than by reading logs: dump the RPMB in a fresh BROM session and `grep -boa "Jz8PNRUF"`. If the magic is present, the erase did not survive. If the record at `0xE20000` reads `wrong unlock data` instead of `milock state`, the boot chain ran and reverted you.
 
 **Q: I did the full sequence correctly, the erase persists in a cold BROM re-read, but fastboot still says `unlocked: no`. What is happening?**  
-A: Your device is almost certainly in [Tier 3b](COMPATIBILITY.md#tier-3b--preloader-restores-magic-on-boot-hard-block-no-bypass-yet). On MT6877 (rubypro, pissarrro, pissarropro) and `earth` (Redmi 12C, MT6769Z eMMC), the preloader restores the 8 magic bytes on every start-up, including the start-up needed to reach fastboot mode. The boot chain is preloader -> LK -> fastboot, and there is no way to reach fastboot without the preloader running.
+A: Your device is almost certainly in [Tier 3b](COMPATIBILITY.md#tier-3b--early-boot-chain-restores-magic-hard-block-no-bypass-yet). On MT6877 (rubypro, pissarrro, pissarropro) and `earth` (Redmi 12C, MT6769Z eMMC), an early boot stage restores the 8 magic bytes on every tested start-up, including the start-up needed to reach fastboot mode. The exact stage has not yet been isolated.
 
 What is proven:
 - The erase reaches flash and persists in a cold BROM re-read (confirmed by LucaCraft89's three-dump test on rubypro)
 - `seccfg unlock` succeeds at the flash level (seccfg reads `lock_state=3`)
-- The preloader restores only the 8 magic bytes, nothing else in the sector is touched (0xAA marker test)
-- On earth, the restorer does not appear as a literal `Jz8PNRUF` string in the preloader boot1 dump (vivaad), suggesting it computes the value rather than copying it
+- The boot-time restorer changes only the 8 magic bytes, nothing else in the sector is touched (0xAA marker test)
+- On earth, the sector remains zero after `mtk.py reset` plus cold BROM re-entry, then the magic returns after the Mi logo appears
+- The literal `Jz8PNRUF` does not appear in earth's preloader boot1 dump, so the responsible stage remains unidentified
 
-This is a hard block for the current method. The realistic bypass path is reversing the MT6877 and earth preloaders in Ghidra to find and patch the magic-restoration code before handing off to LK. That work is open. If you have the hardware to help, see the "What would help" section in [COMPATIBILITY.md](COMPATIBILITY.md).
+This is a hard block for the current method. The realistic next step is comparing the MT6877 and earth boot chains in Ghidra, starting with callers of the LK magic-write path and then following evidence into the preloader, ATF/TEE or another loader as needed. That work is open. If you have the hardware to help, see the "What would help" section in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 **Q: `fastboot oem lks` returns an error. Did it fail?**  
 A: Not necessarily. That OEM command is not implemented on every LK build. On sea/MT6781 it returns `EX_UNSUPPORTED_OPERATION` while the device is genuinely unlocked. `fastboot getvar unlocked` is the authoritative check.
@@ -545,23 +564,28 @@ A: Not necessarily. That OEM command is not implemented on every LK build. On se
 **Q: My device is MT6833 and the scanner says sector 65504, but my grep returned 57344. Which do I trust?**  
 A: The grep. MT6833 ships with two different LK driver families (`gold` and `light`), and they use different internal RPMB offset logic. On `gold` (Dimensity 6080, Redmi Note 13 5G) the magic lives at sector 65504. On `light` (Dimensity 700, POCO M4 5G `thunder`) it lives at sector 57344. ogmkp traced the divergence to a `uxth` truncation at LK offset `0x6AD96` on the light driver, which clamps the RPMB address to 16 bits and reduces both internal base values to 57344. Both are verified on hardware. Always grep your dump.
 
+**Q: RPMB reads fail with `unpack requires a buffer of 12 bytes` followed by `TypeError: object of type 'int' has no len()`. Is the phone unsupported?**
+
+A: Not necessarily. On the `thunder` MT6833 report, the supplied DA placed a 16-bit Thumb alignment NOP between the `ufshcd_probe_hba` return and its UFS HBA literal. mtkclient read at a fixed `+8` offset and produced `0x6CD0BF00` instead of the aligned pointer `0x40066CD0`, so ordinary UFS access worked while RPMB access failed. This is a host-side DA-extension patching bug, not evidence that the RPMB or phone is unsupported. Do not hardcode those addresses for another DA; the upstream fix must detect the optional alignment NOP. See [mtkclient PR #426](https://github.com/bkerler/mtkclient/pull/426) and the original measured evidence in [issue #18](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/18).
+
 </details>
 
 ## Warnings
 
 1. **BACKUP RPMB FIRST.** Step 1 is your safety net. Never skip it.
 2. **BACKUP NV PARTITIONS** (nvdata, nvcfg, nvram, persist, protect1, protect2) — without these, you risk "NV data corrupted" which breaks IMEI and baseband.
-3. **THIS WILL WIPE YOUR DATA.** Factory reset on first boot after unlock.
-4. **NEVER TOUCH THE POWER BUTTON** between the RPMB erase and `seccfg unlock`. The preloader
-   rewrites the magic on any start-up, and reaching the Mi logo is enough. See
+3. **ASSUME DATA LOSS.** Whether an explicit wipe is required varies by build; back up before any write.
+4. **NEVER TOUCH THE POWER BUTTON** between the RPMB erase and `seccfg unlock`. The early boot
+   chain can rewrite the magic on start-up, and reaching the Mi logo is enough. See
    [the rule](#never-use-the-power-button-between-the-rpmb-erase-and-seccfg-unlock).
 5. **USB 2.0 ONLY.** A USB 3.0 controller makes writes report success without committing to flash.
    See [Use a USB 2.0 port](#use-a-usb-20-port-never-usb-30).
-6. **BROM V6 = NO GO,** but do not read that as a number comparison. MediaTek part numbers are not
-   chronological: MT6877 is a 2021 part, older than the 2022 MT6789, and Kamakiri runs on it. The
-   patched parts are MT6789, MT6855 and later designs. See [COMPATIBILITY.md](COMPATIBILITY.md).
-7. **HyperOS 1, 2, and 3 all CONFIRMED.** Method holds across the full HyperOS lifecycle. Always run `scan_lk.py` on both lk_a and lk_b first.
-8. **SCAN BOTH LK SLOTS.** lk_a and lk_b can carry different LK builds after an OTA. Confirmed on Redmi 12 (fire, HyperOS 2.0) — slot B had the RPMB lock, slot A didn't.
+6. **NO CONFIRMED BROM ACCESS = NO GO.** Do not infer support by comparing MediaTek part numbers:
+   MT6877 and MT6893 were previously misclassified that way, and Kamakiri runs on both. Support
+   must be indexed by the exact SoC generation and observed BROM exchange. See
+   [COMPATIBILITY.md](COMPATIBILITY.md).
+7. **HyperOS 1, 2, and 3 all have hardware confirmations.** That proves version coverage, not universal device compatibility. Always scan both LK slots and inspect live RPMB state.
+8. **SCAN BOTH LK SLOTS.** lk_a and lk_b can carry different LK builds after an OTA. Confirmed independently on Redmi 12 (`fire`) and POCO M4 Pro 4G (`fleur`) — slot B had the RPMB lock while slot A did not.
 9. **VERIFY BY RE-READING, NOT BY READING LOGS.** Both failure modes above print success. Only a
    fresh RPMB dump and `fastboot getvar unlocked` tell you the truth.
 10. Unlocking the bootloader voids manufacturer warranty.

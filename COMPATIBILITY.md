@@ -11,24 +11,25 @@
 
 ## Tier 1 — PROVEN ON HARDWARE
 
-| Device (codename, model) | SoC | UFS vendor | LK build | scan_lk verdict | Path | Result | Date | Tester |
+| Device (codename, model) | SoC | Storage | LK build | scan_lk verdict | Path | Result | Date | Tester |
 |-|-|-|-|-|-|-|-|-|
 | POCO M4 Pro 4G (fleur) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.11.0.TKEEUXM (Oct 2024) | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-03-23 | Jz8root |
+| POCO M4 Pro 4G (fleur, 2201117PG) | MT6781 Helio G96 | SK Hynix `H9QT1G6DN6X132` | HyperOS 1.0.2.0.TKEMIXM, exact slot hashes/builds pending [#19](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/19) | active `lk_b`: `COMPATIBLE_FULL` (100/100); `lk_a`: `COMPATIBLE_SECCFG_ONLY` | A (RPMB erase sector 57344 + seccfg, active slot B) | UNLOCKED, persistent | 2026-10-19 | staxifrage |
 | Redmi Note 11S 4G (fleur, 2201117SY) | MT6781 Helio G96 | SK Hynix H9HQ54AECMMDAR | `fleur-d01540d34-20220430143603` md5 `701bbd3ee76e780b030d8568368a7a4e` (HyperOS V816.0.1.0.TKEEUXM, EEA) | `COMPATIBLE_SECCFG_ONLY` (52/100) | B (seccfg only) | UNLOCKED | 2026-05-19 | miromraz |
 | Redmi Note 11S Global (miel, 2201117SG) | MT6781 Helio G96 | Samsung KM8L9001JM-B62 | `fleur-90fe266d7-20240412152854-20241206204609` (HyperOS OS1.0.9.0.TKEMIXM) | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-05 | itsme |
 | Redmi Note 11S (miel, MT6781) | MT6781 Helio G96 | Samsung | HyperOS OS1.0.9.0.TKEEUXM | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-06-15 | kwhj4ff67r-crypto |
 | Redmi Note 13 5G (gold) | MT6833 Dimensity 6080 | Samsung | HyperOS 3.0.9.0.VNQCNXM (Android 15) `gold-c2e4398a1-20260513092248-20260514074541` | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 65504** + seccfg) | UNLOCKED | 2026-06-15 | KTS618 |
-| Redmi 12 (fire) | MT6769Z Helio G85 | Samsung | HyperOS 2.0.207 (Android 14) | `COMPATIBLE_FULL` (100/100, **slot B** — lk_a was SECCFG_ONLY) | A (RPMB erase sector 57344 + seccfg, active slot B) | UNLOCKED | 2026-06-16 | piotrurban |
+| Redmi 12 (fire) | MT6769Z / Helio G88 | Samsung; exact ID not preserved, [Redmi 12 official specification](https://www.mi.com/global/product/redmi-12/specs/) is eMMC 5.1 | HyperOS 2.0.207 (Android 14) | `COMPATIBLE_FULL` (100/100, **slot B** — lk_a was SECCFG_ONLY) | A (RPMB erase sector 57344 + seccfg, active slot B) | UNLOCKED | 2026-06-16 | piotrurban |
 | Redmi Note 12S (sea) | MT6781 Helio G96 | (not reported) | HyperOS 2.0.210.0 VHZMIXM | `COMPATIBLE_FULL` | A (RPMB erase sector 57344 + seccfg) | UNLOCKED | 2026-07-30 | katavnnn |
-| POCO M4 5G (thunder, 22041219PG) | MT6833 Dimensity 700 | SanDisk SDINDDK4-64G | `light-072f5dbd2-20231011161345-20250722115219` (HyperOS OS1.0.8.0.ULSEUXM, EEA) | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 57344** + seccfg) | UNLOCKED | 2026-10-16 | ogmkp |
+| POCO M4 5G (thunder, 22041219PG) | MT6833 Dimensity 700 | SanDisk UFS `SDINDDK4-64G`, MID `0x45` | `light-072f5dbd2-20231011161345-20250722115219` (HyperOS OS1.0.8.0.ULSEUXM, EEA) | `COMPATIBLE_FULL` (100/100) | A (RPMB erase **sector 57344** + seccfg, active slot A) | UNLOCKED, persistent | 2026-10-16 | [ogmkp](https://github.com/ogmkp), [#18](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/18) |
 
 > **Note on miel:** `fastboot getvar version-bootloader` returns `fleur-90fe266d7-...` — Xiaomi ships the
 > fleur LK binary on miel unchanged. The same recipe works without modification. RPMB dump shows magic at
 > 4 locations (sector 16352, 57344, 81888, 122880); erasing sector 57344 only is sufficient — the other
-> copies appear to be UFS RPMB address space mirroring (lower 16 MB mirrored to upper 16 MB).
+> hits 16 MiB apart are aliases caused by the 16-bit RPMB frame address wrapping at 65536 sectors.
 >
 > **⚠️ RPMB sector is NOT universal — always locate the magic before erasing:**
-> The sector where `Jz8PNRUF` lives in the RPMB dump is SoC-dependent. Known values:
+> The sector where `Jz8PNRUF` lives is driver-family-dependent. Known measurements:
 > - MT6781 (Helio G96): sector **57344** (dump offset `0xE00000`)
 > - MT6833 (Dimensity 6080, gold LK): sector **65504** (dump offset `0xFFE000`) -- discovered by KTS618
 > - MT6833 (Dimensity 700, light LK): sector **57344** (dump offset `0xE00000`) -- discovered by ogmkp
@@ -40,35 +41,44 @@
 > To find the correct sector on your device: dump RPMB with `python3 mtk.py da rpmb r rpmb_dump.bin`,
 > then run `grep -boa "Jz8PNRUF" rpmb_dump.bin` -- the byte offset divided by 256 gives your sector number.
 
+> **`thunder` acquisition detail:** the saved 2 MiB `lk_b` partition was entirely zero-filled
+> (SHA-256 `5647f05ec18958947d32874eeb788fa396a05d0bab7c1b71f112ceb7e9b31eee`).
+> The active `lk_a` matched the complete official `lk.img` byte-for-byte; the remaining partition
+> tail was zero padding. This describes the captured device state, not every future OTA layout.
+
 ## Tier 2 — CONFIRMED COMPATIBLE VIA LK ANALYSIS (unlock pending)
 
 | Device | SoC | Status |
 |-|-|-|
-| *(no entries — all analyzed devices have now been tested on hardware)* | — | — |
+| *(no entry currently meets the Tier 2 evidence bar)* | — | — |
 
-## Tier 3 — PROBABLE (GitHub issues confirm same symptom)
+## Tier 3 — INVESTIGATION REQUIRED
 
-These devices have documented mtkclient issues with the exact same problem: "seccfg unlock succeeds but bootloader stays locked." The RPMB erase fix is the logical answer.
+These devices have partial LK or hardware evidence but not enough live-state data
+to select a safe path. They require both-slot LK scans and RPMB state collection;
+the RPMB erase fix is a hypothesis, not a hardware-confirmed result.
 
-| Device | SoC | mtkclient Issue |
+| Device | SoC | Evidence / issue |
 |--------|-----|-----------------|
-| POCO M3 Pro / Redmi Note 10 5G (camellia) | MT6833 | #764 |
-| Redmi 10 5G | MT6833 | #764 |
-| Redmi Note 8 Pro / POCO X2 (begonia) | MT6785 | #1219 |
-| Redmi Note 9 Pro 5G / Mi 10T Lite | MT6873 | — |
-| Redmi Note 9 5G / Note 9T | MT6853 | — |
-| Redmi 9 / Note 9 (lancelot) | MT6769 | — |
-| Redmi 10C / 10A / 9A / 9C | MT6762 | #81 #738 #1405 |
+| POCO M3 Pro / Redmi Note 10 5G (camellia) | MT6833 | Legacy LK sample exists; no current hardware report in this repository |
+| Xiaomi 11T (agate) | MT6893 Dimensity 1200 | [#14](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/14) — Kamakiri confirmed; MIUI 12.5 token-gated case and HyperOS 1.0.15 LK investigation open |
 
-Issues #81 and #738 have been open since **2021**.
+`agate` is not a normal RPMB-fix prediction yet. On MIUI 12.5, a cold-read-verified
+seccfg state 3 remained locked and the full RPMB dump contained no magic. A later
+HyperOS 1.0.15 LK supplied by qqqZXzz123 scans `COMPATIBLE_FULL` and contains the
+explicit string `1st time run MI Lock, write magic`, but no live RPMB state or
+hardware unlock result has been supplied. Read-only device-state collection is
+required before selecting a path.
 
-## Tier 3b -- PRELOADER RESTORES MAGIC ON BOOT (hard block, no bypass yet)
+## Tier 3b -- EARLY BOOT CHAIN RESTORES MAGIC (hard block, no bypass yet)
 
 Kamakiri works, BROM is reachable, the RPMB reads and writes fine, and `scan_lk.py` returns
 `COMPATIBLE_FULL`. The erase reaches flash and persists in a cold BROM re-read, but any boot
-path through the preloader restores the 8 magic bytes before LK evaluates the lock state.
-Fastboot verification therefore always reports locked, even after a full erase + seccfg unlock
-sequence. **Two independent clusters, same root cause.**
+path restores the 8 magic bytes before fastboot can report the unlocked state. Fastboot
+verification therefore always reports locked, even after a full erase + seccfg unlock sequence.
+The responsible stage has not yet been isolated: current evidence bounds it to the normal boot
+chain after cold BROM re-entry and before the lock result is exposed. **Two independent clusters,
+same observed mechanism.**
 
 ### Cluster 1: MT6877
 
@@ -79,12 +89,14 @@ sequence. **Two independent clusters, same root cause.**
 | Redmi Note 11 Pro+ (pissarropro) | MT6877 / D920 | (not reported) | dexus19 | not reported | bkerler/mtkclient#305 |
 | Redmi Note 12 Pro+ (IN variant) | MT6877 | (not reported) | RWBMAL | not reported | [#8][i8] |
 
-### Cluster 2: MT6769Z eMMC
+### Cluster 2: `earth` (MT6769 family, eMMC)
 
 | Device | SoC | Storage | Reporter | Full sequence tested | Where |
 |-|-|-|-|-|-|
 | Redmi 12C (earth) | MT6769Z | eMMC `Y2P064` | ssg-enjoyer | yes, locked after | [#8][i8] |
 | Redmi 12C (earth) | MT6768/MT6769 | eMMC `Y2P064` | vivaad | yes, locked after + preloader boot1 dump has no literal `Jz8PNRUF` | [#8][i8] |
+
+**Related unresolved case:** a Redmi 12 reported as `fire` with eMMC `Y0S256` ([#10](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/10)) remains locked after persistent V4 seccfg writes. Both LK slots lack the literal magic but contain `mi_get_lock_state` and the RPMB primitives. No RPMB dump or `fastboot getvar product` output was supplied, so it is not yet classified as Tier 3b. The confirmed Tier 1 `fire` row records Samsung storage but its original evidence does not identify UFS versus eMMC; Xiaomi's [official Redmi 12 specification](https://www.mi.com/global/product/redmi-12/specs/) says eMMC 5.1. Storage type alone therefore does not explain the split.
 
 ### What has been measured
 
@@ -103,57 +115,55 @@ sequence. **Two independent clusters, same root cause.**
 
 - Erase at sector 57344, immediate readback shows the sector zeroed
 - seccfg forced to `lock_state=3`, `dm_verity_state=1`
-- After boot, `Jz8PNRUF` is back at sector 57344, fastboot returns `unlocked: no`
-- The preloader boot1 dump (`mtk.py r preloader --parttype=boot1`) does **not** contain the literal string `Jz8PNRUF`. The restorer either computes the value rather than carrying it as a literal, or lives in a flash region outside boot1.
+- After `mtk.py reset` and a cold volume-key BROM re-entry, the sector is still all zero
+- After allowing the phone to reach the Mi logo, exactly bytes 0-7 return to `Jz8PNRUF`; bytes 8-255 remain zero
+- Fastboot returns `unlocked: no`
+- The preloader boot1 dump (`mtk.py r preloader --parttype=boot1`) does **not** contain the literal string `Jz8PNRUF`
 
 ### What is still open
 
-The restoration mechanism is not fully characterised yet. The current best hypothesis is that
-the preloader (or a stage before LK) rewrites the magic from a generated value during early
-boot. On MT6877 and MT6769Z/eMMC it fires on every boot; on the Tier 1 SoCs it does not. The
-realistic next step is reversing the preloader binary in Ghidra to find the exact caller.
+The restoration mechanism is not fully characterised yet. The cold-cycle experiment proves that
+the write happens during the normal boot chain, but reaching the Mi logo does not distinguish the
+preloader, another loader, ATF/TEE or LK. On MT6877 and `earth` it fires on every tested boot;
+on Tier 1 devices it does not restore the magic after the successful sequence. The realistic next
+step is tracing the LK magic-write callers first, then following cross-references into earlier boot
+stages where the evidence points.
 
 ### What would help
 
 If you own one of these devices, three things move the needle:
 
-1. Repeat the cold-cycle test: `erase -> mtk.py reset -> cold BROM re-entry -> rpmb r -> grep`. If the magic is already back **without** a boot in between, the restorer lives below the DA level.
-2. If you have the hardware to open the device, dump the full eMMC/UFS boot1 and boot2 partitions. Share the raw dumps (or an SHA256 and byte offsets of any `Jz8PNRUF` hits) so we can locate the restorer in flash.
-3. Share your `scan_lk.py --json` output and your UFS/eMMC ID. Vendor cross-reference matters.
+1. Preserve minimal before/after proof: the 256-byte magic sector after cold BROM re-entry and after a normal boot, or at least SHA-256 hashes plus byte-level diffs.
+2. Share both LK slots, exact build strings, `scan_lk.py --json` output and preloader/boot1/boot2 hashes. Raw private dumps are not required if the relevant binaries and offsets can be isolated.
+3. Trace the magic writer and its callers in Ghidra. Cross-device comparison between blocked `earth`/MT6877 builds and working `fire`/MT6781 builds is now more useful than repeating untargeted erase cycles.
 
-## Tier 4 — NOT COMPATIBLE (BROM V6 — Kamakiri patched in hardware)
+## Tier 4 — NO CONFIRMED ACCESS PATH IN THIS PROJECT
 
-| SoC | Example Devices |
+These raw SoC families currently have no project-verified Kamakiri/BROM path for
+this method. This is a research status, not proof that every device using the SoC
+is permanently inaccessible.
+
+| SoC family | Project status |
 |-----|-----------------|
-| MT6789 / Helio G99 | POCO M5 |
-| MT6855 / Dimensity 8100 | POCO F5 |
-| MT6893 / Dimensity 1200 | Redmi K40 Gaming |
-| MT6895 / Dimensity 8200 | Redmi Note 12 Turbo Pro |
-| MT6983 / Dimensity 9000+ | Xiaomi 13, 13T |
-| MT6989 / Dimensity 9300 | Xiaomi 14T Pro |
+| MT6789 / MT8781V | No confirmed path |
+| MT6855 | No confirmed path |
+| MT6895 | No confirmed path |
+| MT6983 | No confirmed path |
+| MT6989 | No confirmed path |
 
 > **⚠️ Do not judge Kamakiri support by comparing SoC numbers.** MediaTek part numbers are not
-> chronological, so "MT6789 or newer" cannot be read as "greater than 6789". The MT6877 is a 2021
-> part, older than the 2022 MT6789, and Kamakiri runs on it. Release order for the parts that
-> matter here:
->
-> | Year | SoC | Kamakiri |
-> |-|-|-|
-> | 2020 | MT6833 | works |
-> | 2021 | MT6781 | works |
-> | 2021 | MT6877 | works |
-> | 2022 | MT6789 | patched |
-> | 2022 | MT6855 | patched |
->
-> MT6877 was previously listed in Tier 4 on that faulty reading. It is not BROM V6, and the
-> Redmi Note 12S (sea) was listed there too while actually being an MT6781, now Tier 1.
+> chronological, so "MT6789 or newer" cannot be read as "greater than 6789". MT6877 and MT6893
+> were previously listed here on that faulty inference; hardware logs now confirm Kamakiri on
+> both. Redmi Note 12S (`sea`) was also listed here while actually being an MT6781, now Tier 1.
+> Classify the exact SoC and observed BROM exchange, not a marketing-name guess or a greater-than
+> comparison.
 
 **All Snapdragon devices** are out of scope (completely different bootloader architecture).
 
 ## Firmware → Likely Verdict (rule of thumb)
 
-The verdict from `scan_lk.py` on your specific LK is authoritative. Use this table only as a
-prior expectation:
+The verdict from `scan_lk.py` is the binary decision gate, not proof of live RPMB initialization.
+Use this table only as a prior expectation:
 
 | Firmware era | Likely scan_lk verdict | Notes |
 |-|-|-|
@@ -162,7 +172,7 @@ prior expectation:
 | HyperOS 2 (2025) | `COMPATIBLE_FULL` (Path A) | Confirmed on fire/MT6769Z (piotrurban). lk_a/lk_b can diverge after OTA — scan both slots |
 | HyperOS 3 (2026, OS3.0.x, Android 15) | `COMPATIBLE_FULL` (Path A) | Confirmed on gold/MT6833 (KTS618). RPMB sector may differ from MT6781 — always grep the dump |
 | MIUI 14 (2023) | Varies | Some shipped with the new lock; many didn't |
-| MIUI 13 (2022) and earlier | `COMPATIBLE_SECCFG_ONLY` (Path B) | Pre-dates the RPMB lock layer entirely |
+| MIUI 13 (2022) and earlier | Varies | Many builds are Path B, but `agate` MIUI 12.5 is a counterexample: persistent seccfg state 3 remained locked with no live RPMB magic |
 
 ---
 
@@ -170,8 +180,8 @@ prior expectation:
 - Device model + codename + submodel suffix (e.g. `2201117SY`)
 - SoC
 - Firmware version
-- UFS vendor (from mtkclient log: `DAXFlash - UFS ID: ...`)
-- LK build string and md5 (look in the LK binary with `strings lk_a.bin | grep -E '<codename>-'`)
+- Storage identifier (from `DAXFlash - UFS ID:` or `DAXFlash - EMMC ID:`)
+- LK build string and SHA-256 (look in the LK binary with `strings lk_a.bin | grep -E '<codename>-'`)
 - `scan_lk.py --json` output
 - `fastboot oem lks` output after the procedure
 

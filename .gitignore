@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+
+# Local evidence archives. Public summaries belong in tracked documentation.
+_evidence_66rom/
+_hardware_reports/

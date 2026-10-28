@@ -66,7 +66,7 @@ RPMB_SIZE_16M = 0x1000000    # was misleadingly named RPMB_TYPE_ALT
 #   MT6833 Dimensity 6080 (gold) : dump offset 0xFFE000 → sector 65504
 # The sector reported in the verdict is estimated from the LK type constant — always
 # verify with: grep -boa "Jz8PNRUF" rpmb_dump.bin  (byte_offset / 256 = sector)
-RPMB_OFFSETS_SAMSUNG = {
+RPMB_OFFSETS_4M = {
     "magic":           0x3FE0,     # LK-internal, maps to dump sector 57344 (MT6781) or 65504 (MT6833)
     "lock_state_len":  0x40E0,     # LK-internal
     "signature_data":  0x41E0,     # LK-internal
@@ -79,7 +79,7 @@ RPMB_OFFSETS_SAMSUNG = {
 # expectation: grep -boa "Jz8PNRUF" rpmb_dump.bin
 RPMB_SECTOR_KNOWN = {
     "MT6781": 57344,        # Helio G96 -- confirmed fleur, miel, sea
-    "MT6769Z": 57344,       # Helio G85 -- confirmed fire
+    "MT6769Z": 57344,       # Helio G85/G88 family -- confirmed fire and earth
     "MT6833/gold": 65504,   # Dimensity 6080 -- confirmed gold (KTS618 2026-06-15)
     "MT6833/light": 57344,  # Dimensity 700 -- confirmed thunder (ogmkp 2026-10-16)
     "MT6877": 57344,        # Dimensity 920/1080 -- confirmed rubypro
@@ -189,6 +189,11 @@ W_TOTAL   = W_MAGIC + W_RSA + W_SECCFG + W_FUNCS   # 100
 # W_FUNCS no matter how complete its LK is.
 KEY_FUNCS = ["mi_check_magic", "fastboot_oem_lks"]
 
+# An exact mi_get_lock_state string without the known magic is contradictory,
+# not proof of Path B. Issue #10 carries this shape and remains locked with a
+# persistent seccfg state, so it requires live RPMB analysis.
+RPMB_CONTRADICTION_FUNCS = {"mi_get_lock_state"}
+
 # The most a Path B binary can score: no magic, and the function check capped at
 # half because mi_check_magic keys off the magic. 18 + 18 + 8 = 44.
 PATH_B_CEILING = W_RSA + W_SECCFG + int(W_FUNCS * (1 / len(KEY_FUNCS)))
@@ -262,7 +267,7 @@ def scan_rpmb_type(data: bytes) -> dict:
     # The 4M layout is the one every confirmed device has matched so far, so its
     # LK-internal offsets are the ones worth showing. This is a display default,
     # not a detection result.
-    offsets = {k: f"0x{v:04X}" for k, v in RPMB_OFFSETS_SAMSUNG.items()}
+    offsets = {k: f"0x{v:04X}" for k, v in RPMB_OFFSETS_4M.items()}
 
     return {
         "size_constant_counts": counts,
@@ -270,7 +275,7 @@ def scan_rpmb_type(data: bytes) -> dict:
         "note": "informational only, these constants occur naturally in any binary",
         "rpmb_offsets": offsets,
         # Deliberately not derived from the constants above. The sector is
-        # SoC-specific and must come from grep on an actual RPMB dump.
+        # Driver-family-specific and must come from grep on an actual RPMB dump.
         "magic_sector": None,
         "known_sectors": RPMB_SECTOR_KNOWN,
     }
@@ -515,14 +520,14 @@ def generate_verdict(result: dict) -> dict:
             "check": "Magic Jz8PNRUF",
             "status": "FOUND",
             "points": W_MAGIC,
-            "note": f"Found {magic['count']} time(s). This device uses the Xiaomi RPMB lock mechanism.",
+            "note": f"Found {magic['count']} time(s). This LK contains the known Xiaomi RPMB lock mechanism.",
         })
     else:
         details.append({
             "check": "Magic Jz8PNRUF",
             "status": "NOT_FOUND",
             "points": 0,
-            "note": "Magic not found. Either MIUI13 or older (seccfg alone works), or different mechanism.",
+            "note": "Known magic literal not found. This may be an older LK or a different lock mechanism.",
         })
 
     # 2. RPMB size constants — reported, never scored. See scan_rpmb_type().
@@ -532,7 +537,7 @@ def generate_verdict(result: dict) -> dict:
         "points": 0,
         "note": ("counts: " + ", ".join(f"{k} x{v}" for k, v in rpmb["size_constant_counts"].items())
                  + ". Not discriminating, these values occur naturally in any binary "
-                   "and say nothing about the storage vendor. The sector is SoC-specific, "
+                   "and say nothing about the storage vendor. The sector depends on the LK driver family, "
                    "confirm it with: grep -boa \"Jz8PNRUF\" rpmb_dump.bin"),
     })
 
@@ -588,12 +593,15 @@ def generate_verdict(result: dict) -> dict:
     # Verdict names are part of the public contract: README.md indexes its two
     # procedure paths by these exact strings, and COMPATIBILITY.md records them
     # per device. Renaming one means updating both.
-    if score >= 70 and magic["found"]:
+    contradictory_rpmb = sorted(RPMB_CONTRADICTION_FUNCS.intersection(functions["detected"]))
+
+    if score >= 70 and magic["found"] and seccfg["version"]:
         compatibility = "COMPATIBLE_FULL"
         method = "RPMB erase (grep your sector) + seccfg unlock"
         sector_list = ", ".join(f"{k} = {v}" for k, v in RPMB_SECTOR_KNOWN.items())
         message = (
-            "This device is compatible with the RPMB erase + seccfg unlock method. "
+            "This LK contains the known RPMB magic and seccfg support required by Path A. "
+            "The binary verdict does not prove that the live RPMB record was initialized. "
             "The sector depends on the LK driver family and cannot be read from the "
             "LK alone. Known values: " + sector_list + ". "
             "Confirm yours with: "
@@ -601,7 +609,16 @@ def generate_verdict(result: dict) -> dict:
             "(byte offset / 256 = sector). Hits exactly 16 MiB apart are aliases of the same "
             "location, erase the lowest one only. "
             "CRITICAL: never use the Power button between the erase and the unlock. The "
-            "preloader rewrites the magic on any start-up, and the Mi logo alone is enough."
+            "early boot chain can rewrite the magic on start-up, and the Mi logo alone is enough."
+        )
+    elif not magic["found"] and contradictory_rpmb:
+        compatibility = "MAYBE"
+        method = "Live RPMB analysis required"
+        message = (
+            "The known Jz8PNRUF literal is absent, but this LK still exposes the exact RPMB lock "
+            "signal(s): " + ", ".join(contradictory_rpmb) + ". Do not assume Path B and do not "
+            "erase RPMB based on the scanner alone. Dump the live RPMB, scan both LK slots, and "
+            "share the JSON report for manual analysis."
         )
     # Path B is gated on evidence, not on the score.
     #
@@ -630,14 +647,13 @@ def generate_verdict(result: dict) -> dict:
     # at least one of the key functions. That admits all three real Path B shapes
     # (44, 36, 31) and still rejects the preloader, whose only evidence is the
     # seccfg string. A binary with nothing but that string is genuinely
-    # indistinguishable from a preloader here and belongs in MAYBE.
+    # indistinguishable from a preloader here and belongs outside Path B.
     elif not magic["found"] and seccfg["version"] and (rsa["modulus_found"] or funcs_found > 0):
         compatibility = "COMPATIBLE_SECCFG_ONLY"
         method = "seccfg unlock only (no RPMB lock)"
         message = (
-            "RPMB magic not found: this LK does not implement the RPMB lock layer, so it "
-            "falls back to seccfg unconditionally. Run 'mtk.py da seccfg unlock', no RPMB "
-            "write is needed and the destructive erase step does not apply. "
+            "The known RPMB magic and contradictory mi_get_lock_state signal are absent. This LK "
+            "is a Path B candidate and should use 'mtk.py da seccfg unlock' without an RPMB erase. "
             f"Scored {score}/{W_TOTAL}, which is low by construction: the highest a Path B binary "
             f"can reach is {PATH_B_CEILING}/{W_TOTAL}, because the rest of the scale measures the "
             "magic this device does not have. The score is not a confidence level here: the "

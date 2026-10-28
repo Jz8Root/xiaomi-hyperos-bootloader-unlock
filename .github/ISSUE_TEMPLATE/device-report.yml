@@ -73,7 +73,7 @@ body:
         Which sector did you erase, and how did you find it? The sector depends on the LK
         driver family, not on the SoC alone. Get yours with:
         `python3 mtk.py da rpmb r rpmb_dump.bin` then `grep -boa "Jz8PNRUF" rpmb_dump.bin`
-        (byte offset / 256 = sector). Known values: MT6781/MT6769Z UFS = 57344,
+        (byte offset / 256 = sector). Known values: MT6781/MT6769Z = 57344,
         MT6833 gold = 65504, MT6833 light = 57344, MT6877 = 57344. MT6833 varies by LK
         family (gold vs light), do not assume a value, always grep. Leave as "n/a" if you
         took Path B (seccfg only).
@@ -86,9 +86,9 @@ body:
       label: Storage identifier (UFS ID or EMMC ID)
       description: >-
         From the mtkclient log, the `DAXFlash - UFS ID:` or `DAXFlash - EMMC ID:` line.
-        This matters for the compatibility database because the eMMC vs UFS split
-        currently separates confirmed unlocks from the Tier 3b hard-block cluster on
-        same-SoC devices.
+        This matters for the compatibility database, but storage type alone does not
+        predict success: current same-family reports differ by LK build and boot-chain
+        behavior as well as storage implementation.
       placeholder: 'e.g. UFS KM8L9001JM-B62 or EMMC Y2P064'
     validations:
       required: false

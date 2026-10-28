@@ -33,9 +33,9 @@ int mi_check_magic(void) {    // FUN_0003b848
   int rpmb_type = rpmb_get_type();    // FUN_0006e968
   ushort offset;
 
-  if (rpmb_type == 0x1000000) {       // Alt UFS type
+  if (rpmb_type == 0x1000000) {       // 16 MiB branch
     offset = 0xe000;
-  } else if (rpmb_type == 0x400000) { // UFS 4 MiB layout (all confirmed Tier 1 devices)
+  } else if (rpmb_type == 0x400000) { // 4 MiB branch on the reference fleur LK
     offset = 0x3fe0;
   } else {
     return 7;                          // Unknown type → error
@@ -100,7 +100,7 @@ NOT FOUND
 
 | Fact | Source | Status |
 |------|--------|--------|
-| LK reads magic from RPMB block 0x3FE0 (Samsung) | Ghidra decompilation FUN_0003b848 | **PROVEN** |
+| Reference fleur LK reads magic from internal RPMB offset 0x3FE0 on its 4 MiB branch | Ghidra decompilation FUN_0003b848 | **PROVEN** |
 | "Jz8PNRUF" constant at LK offset 0x110608 | xxd on official firmware lk_a.img | **PROVEN** |
 | `da rpmb e --sector 57344 --sectors 4` erases the magic | before/after dumps + hardware unlock | **PROVEN** |
 | Unlock is persistent across reboots | fresh dump 2026-05-16, months later | **PROVEN** |
@@ -119,7 +119,7 @@ elif self.mtk.daloader.daconfig.storage.flashtype == "ufs":
 ```
 
 mtkclient hardcodes **512 × 256 = 131072 sectors** for UFS RPMB reads, regardless
-of the actual RPMB partition size (4 MB for Samsung type 0x400000). This explains
+of the reference device's 4 MiB RPMB size. This explains
 the 32 MB dump — it reads the entire addressable RPMB space, not just the used portion.
 
 The sector is passed **directly** to the Download Agent hardware with no conversion:
@@ -177,14 +177,16 @@ The `gold` driver (Dimensity 6080, Redmi Note 13 5G) does not perform this trunc
 | gold | Dimensity 6080 | 65504 | `0xFFE000` | Tier 1 (KTS618, Gkhupo) |
 | light | Dimensity 700 | 57344 | `0xE00000` | Tier 1 (ogmkp) |
 
-### Preloader magic restoration on Tier 3b devices
+### Early boot-chain magic restoration on Tier 3b devices
 
-LucaCraft89 (rubypro, MT6877, SK Hynix UFS, [#13](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/13)) performed a three-dump sequence that proved the preloader is the restorer:
+LucaCraft89 (rubypro, MT6877, SK Hynix UFS, [#13](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/13)) performed a three-dump sequence that bounded restoration to the normal boot path:
 
 1. After erase + cold BROM re-entry: magic **absent** (erase persists in flash)
-2. After any boot path (even just reaching the Mi logo): magic **present** (preloader restores it)
+2. After a normal boot path (even just reaching the Mi logo): magic **present**
 3. The `0xAA` marker test: 248 bytes of a 256-byte sector persisted across cold cycle, only the 8 magic bytes reverted to `Jz8PNRUF`
 
-Both LucaCraft89 and burg1ar (pissarrro, MT6877, Samsung UFS, [#11](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/11)) ran the full `erase -> reset -> seccfg unlock -> reset -> fastboot` sequence and obtained `unlocked: no` -- confirming the preloader restoration survives the complete procedure.
+Both LucaCraft89 and burg1ar (pissarrro, MT6877, Samsung UFS, [#11](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/11)) ran the full `erase -> reset -> seccfg unlock -> reset -> fastboot` sequence and obtained `unlocked: no` -- confirming the boot-time restoration survives the complete procedure.
 
-vivaad (earth, Redmi 12C, MT6769Z eMMC, [#8](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/8)) reproduced the same pattern on a different SoC and storage type, and added one new finding: the preloader boot1 partition dump does **not** contain the literal string `Jz8PNRUF`. The restorer either computes the value or resides in a flash region outside the boot1 dump.
+vivaad (earth, Redmi 12C, MT6769Z eMMC, [#8](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/8)) then isolated the boundary more precisely. After erase, `mtk.py reset` and a cold volume-key BROM re-entry, sector 57344 remained 256 zero bytes. Only after allowing the phone to reach the Mi logo did bytes 0-7 return to `Jz8PNRUF`; bytes 8-255 stayed zero. This proves the writer runs during the normal boot chain, not during controller rollback or cold BROM entry.
+
+The experiment does **not** identify the exact writer. Reaching the Mi logo spans the preloader through LK, and earth's preloader boot1 dump does not contain the literal string. Until a call trace or instrumented stage isolates it, `early boot chain` is the strongest supported attribution.
