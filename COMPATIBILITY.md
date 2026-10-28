@@ -85,7 +85,7 @@ same observed mechanism.**
 | Device | SoC | Storage | Reporter | Full sequence tested | Where |
 |-|-|-|-|-|-|
 | Redmi Note 12 Pro+ 5G (rubypro) | MT6877 | SK Hynix `H9QT1G6DN6X132` | LucaCraft89 | yes, locked after | [#13][i13], bkerler/mtkclient#305 |
-| Redmi Note 11 Pro (pissarrro) | MT6877 | Samsung `KM8F9001JM-B81` | burg1ar | yes, locked after | [#11][i11] |
+| Redmi Note 11 Pro (pissarro) | MT6877 | Samsung `KM8F9001JM-B81` | burg1ar | yes, locked after | [#11][i11] |
 | Redmi Note 11 Pro+ (pissarropro) | MT6877 / D920 | (not reported) | dexus19 | not reported | bkerler/mtkclient#305 |
 | Redmi Note 12 Pro+ (IN variant) | MT6877 | (not reported) | RWBMAL | not reported | [#8][i8] |
 
@@ -107,7 +107,7 @@ same observed mechanism.**
 - A same-session re-read shows the magic gone, which is a false positive (see README on cold verification)
 - Full `erase -> reset -> seccfg unlock -> reset -> fastboot` sequence runs cleanly and ends with `unlocked: no`
 
-**On pissarrro (burg1ar):**
+**On pissarro (burg1ar):**
 
 - Same symptom as rubypro, Samsung UFS instead of SK Hynix: `erase + seccfg unlock` in a single DA session, seccfg reports `Device is already unlocked`, fastboot returns `unlocked: no`. The UFS vendor is not the variable.
 

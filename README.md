@@ -30,7 +30,7 @@ Starting with HyperOS, Xiaomi stores a magic string in the **RPMB** (Replay Prot
 
 **Why it persists across reboots on confirmed devices:** on the Tier 1 devices (MT6781, MT6769Z, MT6833), no boot stage restores the magic once seccfg has been set to UNLOCK, so the erase holds and the device boots to the unlocked state. RPMB dumps taken days or weeks after the original unlock still show the magic region zeroed. See [proof/VERIFICATION.md](proof/VERIFICATION.md) for dump evidence.
 
-**Where this does not hold:** on MT6877 (rubypro, pissarrro, pissarropro) and on `earth` (Redmi 12C, MT6769Z eMMC), the early boot chain restores the 8 magic bytes on every start-up regardless of seccfg state. The erase reaches flash and survives a reset plus cold BROM re-entry, but allowing the normal boot chain to run puts it back, which means fastboot verification always reports locked. The exact writer (preloader, another loader, ATF/TEE or LK) has not yet been isolated. These devices are listed in [COMPATIBILITY.md](COMPATIBILITY.md) under Tier 3b (investigation open, no bypass yet).
+**Where this does not hold:** on the measured MT6877 `rubypro` and `pissarro` reports, and on `earth` (Redmi 12C, MT6769Z eMMC), the RPMB procedure ends with fastboot still locked. Dump-level tests on `rubypro` and `earth` show why: the erase reaches flash and survives a reset plus cold BROM re-entry, but the normal boot chain restores the 8 magic bytes. `pissarropro` has a separate matching failure report without the same dump-level trace. The exact writer (preloader, another loader, ATF/TEE or LK) has not yet been isolated. These devices are listed in [COMPATIBILITY.md](COMPATIBILITY.md) under Tier 3b (investigation open, no bypass yet).
 
 ![mi_check_magic() boot flow](assets/mi_check_magic_flow.png)
 
@@ -475,7 +475,7 @@ Known values:
 | MT6769Z (Helio G85/G88 family) | 57344 | `0xE00000` | fire, earth | Tier 1 on fire; Tier 3b on earth |
 | MT6833 Dimensity 6080, gold LK | 65504 | `0xFFE000` | gold, found by KTS618 | **Tier 1** |
 | MT6833 Dimensity 700, light LK | 57344 | `0xE00000` | thunder, found by ogmkp | **Tier 1** |
-| MT6877 (Dimensity 920/1080) | 57344 | `0xE00000` | rubypro, pissarrro | Tier 3b (sector detected, early boot chain restores magic, no unlock achieved) |
+| MT6877 (Dimensity 920/1080) | 57344 | `0xE00000` | rubypro, pissarro | Tier 3b (sector detected, early boot chain restores magic, no unlock achieved) |
 | MT6769Z eMMC (earth) | 57344 | `0xE00000` | ssg-enjoyer, vivaad | Tier 3b (same restoration pattern as MT6877) |
 
 The right column distinguishes the sector we have detected on the device from whether the unlock
@@ -547,7 +547,7 @@ A: Three known causes, listed from most to least common. All three are silent an
 Diagnose by re-reading rather than by reading logs: dump the RPMB in a fresh BROM session and `grep -boa "Jz8PNRUF"`. If the magic is present, the erase did not survive. If the record at `0xE20000` reads `wrong unlock data` instead of `milock state`, the boot chain ran and reverted you.
 
 **Q: I did the full sequence correctly, the erase persists in a cold BROM re-read, but fastboot still says `unlocked: no`. What is happening?**  
-A: Your device is almost certainly in [Tier 3b](COMPATIBILITY.md#tier-3b--early-boot-chain-restores-magic-hard-block-no-bypass-yet). On MT6877 (rubypro, pissarrro, pissarropro) and `earth` (Redmi 12C, MT6769Z eMMC), an early boot stage restores the 8 magic bytes on every tested start-up, including the start-up needed to reach fastboot mode. The exact stage has not yet been isolated.
+A: Your device is almost certainly in [Tier 3b](COMPATIBILITY.md#tier-3b--early-boot-chain-restores-magic-hard-block-no-bypass-yet). Dump-level tests on MT6877 `rubypro` and Redmi 12C `earth` show an early boot stage restoring the 8 magic bytes before fastboot; `pissarro` independently reaches the same locked result with the same MT6877 RPMB layout. `pissarropro` has a matching failure report but no public dump-level trace. The exact stage has not yet been isolated.
 
 What is proven:
 - The erase reaches flash and persists in a cold BROM re-read (confirmed by LucaCraft89's three-dump test on rubypro)

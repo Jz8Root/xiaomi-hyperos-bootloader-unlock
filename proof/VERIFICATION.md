@@ -185,7 +185,7 @@ LucaCraft89 (rubypro, MT6877, SK Hynix UFS, [#13](https://github.com/Jz8Root/xia
 2. After a normal boot path (even just reaching the Mi logo): magic **present**
 3. The `0xAA` marker test: 248 bytes of a 256-byte sector persisted across cold cycle, only the 8 magic bytes reverted to `Jz8PNRUF`
 
-Both LucaCraft89 and burg1ar (pissarrro, MT6877, Samsung UFS, [#11](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/11)) ran the full `erase -> reset -> seccfg unlock -> reset -> fastboot` sequence and obtained `unlocked: no` -- confirming the boot-time restoration survives the complete procedure.
+LucaCraft89 ran the full `erase -> reset -> seccfg unlock -> reset -> fastboot` sequence and obtained `unlocked: no`. burg1ar (`pissarro`, MT6877, Samsung UFS, [#11](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/11)) independently ran the erase and seccfg operations and also obtained `unlocked: no` in fastboot. Together they show the same MT6877 failure across two UFS vendors; the cold-cycle restoration trace itself comes from LucaCraft89's `rubypro` dumps.
 
 vivaad (earth, Redmi 12C, MT6769Z eMMC, [#8](https://github.com/Jz8Root/xiaomi-hyperos-bootloader-unlock/issues/8)) then isolated the boundary more precisely. After erase, `mtk.py reset` and a cold volume-key BROM re-entry, sector 57344 remained 256 zero bytes. Only after allowing the phone to reach the Mi logo did bytes 0-7 return to `Jz8PNRUF`; bytes 8-255 stayed zero. This proves the writer runs during the normal boot chain, not during controller rollback or cold BROM entry.
 
